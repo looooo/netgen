@@ -11,17 +11,17 @@ if(WIN32)
           $<TARGET_OBJECTS:gen>
           $<TARGET_OBJECTS:la>
           $<TARGET_OBJECTS:gprim>
+          $<TARGET_OBJECTS:occ>
 
           $<TARGET_OBJECTS:visual>
-          $<TARGET_OBJECTS:occ>
        )
-       if(USE_GUI)
-           set(nglib_objects ${nglib_objects}
-	       $<TARGET_OBJECTS:stlvis>
-	       $<TARGET_OBJECTS:geom2dvis>
-               $<TARGET_OBJECTS:csgvis>
-           )
-       endif(USE_GUI)
+    if (USE_GUI)
+        set(nglib_objects 
+          $<TARGET_OBJECTS:stlvis>
+          $<TARGET_OBJECTS:geom2dvis>
+          $<TARGET_OBJECTS:csgvis>
+       )
+    endif(USE_GUI)
 endif(WIN32)
 
 add_library(nglib SHARED nglib.cpp ${nglib_objects})
@@ -43,4 +43,10 @@ if(USE_PYTHON)
 endif(USE_PYTHON)
 
 install(TARGETS nglib ${NG_INSTALL_DIR})
-install(FILES nglib.h DESTINATION ${NG_INSTALL_DIR_INCLUDE}/include COMPONENT netgen_devel)
+install(FILES nglib.h DESTINATION ${NG_INSTALL_DIR_INCLUDE}/nglib COMPONENT netgen_devel)
+install(FILES nglib.h DESTINATION ${NG_INSTALL_DIR_INCLUDE} COMPONENT netgen_devel)
+
+install(FILES
+  nglib.h
+  DESTINATION ${INCDIR}/nglib COMPONENT netgen_devel
+)

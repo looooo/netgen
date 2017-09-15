@@ -118,6 +118,27 @@ endif(USE_PYTHON)
 
 set(NG_INSTALL_SUFFIX netgen CACHE STRING "Suffix appended to install directories (project name)")
 
+#######################################################################
+if (USE_PYTHON)
+    find_package(PythonInterp)
+    find_package(PythonLibs)
+    EXECUTE_PROCESS(COMMAND ${PYTHON_EXECUTABLE} -c
+    "from distutils.sysconfig import get_python_lib; print(get_python_lib())"
+    OUTPUT_VARIABLE python_libs OUTPUT_STRIP_TRAILING_WHITESPACE )
+
+    add_definitions(-DNG_PYTHON)
+
+    include_directories( ${PYTHON_INCLUDE_DIRS})
+    include_directories(${PYBIND_INCLUDE_DIR})
+    include_directories(${PYTHON_INCLUDE_DIRS})
+
+    SET(PYTHON_PACKAGES_INSTALL_DIR ${python_libs})
+    # not necessary
+    # install(DIRECTORY ${PYBIND_INCLUDE_DIR}/pybind11 DESTINATION ${INCDIR} COMPONENT netgen_devel)
+    # install(FILES ${PYBIND_INCLUDE_DIR}/../LICENSE DESTINATION ${INCDIR}/pybind11 COMPONENT netgen_devel)
+endif (USE_PYTHON)
+
+
 if(APPLE)
   set(NG_INSTALL_DIR_BIN_DEFAULT Contents/MacOS)
   set(NG_INSTALL_DIR_LIB_DEFAULT Contents/MacOS)
@@ -215,7 +236,7 @@ if(WIN32)
 else(WIN32)
     # build shared libraries
     set(NG_LIB_TYPE SHARED)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y")
 endif(WIN32)
 if(APPLE)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -undefined dynamic_lookup")
@@ -253,17 +274,6 @@ if (USE_GUI)
         endif(APPLE)
     endif(WIN32)
 endif (USE_GUI)
-
-#######################################################################
-if (USE_PYTHON)
-    add_definitions(-DNG_PYTHON)
-
-    include_directories(${PYBIND_INCLUDE_DIR})
-    include_directories(${PYTHON_INCLUDE_DIRS})
-
-    install(DIRECTORY ${PYBIND_INCLUDE_DIR}/pybind11 DESTINATION ${NG_INSTALL_DIR_INCLUDE} COMPONENT netgen_devel)
-    install(FILES ${PYBIND_INCLUDE_DIR}/../LICENSE DESTINATION ${NG_INSTALL_DIR_INCLUDE}/pybind11 COMPONENT netgen_devel)
-endif (USE_PYTHON)
 
 #######################################################################
 if (USE_MPI)
