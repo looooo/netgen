@@ -7,6 +7,8 @@
 /* Date:   10. Mar. 98                                                    */
 /**************************************************************************/
 
+#define PACKAGE_VERSION "6.2-dev"
+
 /*
   defines for graphics, testmodes, ...
 */
