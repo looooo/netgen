@@ -45,8 +45,3 @@ endif(USE_PYTHON)
 install(TARGETS nglib ${NG_INSTALL_DIR})
 install(FILES nglib.h DESTINATION ${NG_INSTALL_DIR_INCLUDE}/nglib COMPONENT netgen_devel)
 install(FILES nglib.h DESTINATION ${NG_INSTALL_DIR_INCLUDE} COMPONENT netgen_devel)
-
-install(FILES
-  nglib.h
-  DESTINATION ${INCDIR}/nglib COMPONENT netgen_devel
-)
