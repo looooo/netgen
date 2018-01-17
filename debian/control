@@ -1,0 +1,13 @@
+Source: netgen6
+Section: devel
+Priority: optional
+Maintainer: Lorenz Lechner <sppedflyer@gmail.com>
+Build-Depends: debhelper, cmake, build-essential, zlib1g-dev, git, tk-dev, tcl-dev, libopencascade-data-exchange-dev, libopencascade-foundation-dev, libopencascade-modeling-algorithms-dev, libopencascade-modeling-data-dev
+Homepage: https://ngsolve.org/
+
+Package: netgen6
+Architecture: any
+Depends: zlib1g-dev, git, tk, tcl, libopencascade-foundation-7.1.0, libopencascade-modeling-algorithms-7.1.0, libopencascade-modeling-data-7.1.0
+Description: Netgen mesh generator
+ NETGEN is an automatic 3d tetrahedral mesh generator.
+
