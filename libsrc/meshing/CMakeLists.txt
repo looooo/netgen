@@ -30,7 +30,10 @@ if(APPLE)
 endif(APPLE)
 
 if(NOT WIN32)
-    target_link_libraries( mesh ${ZLIB_LIBRARIES} ${MPI_CXX_LIBRARIES} ${PYTHON_LIBRARIES} ${METIS_LIBRARY})
+    target_link_libraries( mesh ${ZLIB_LIBRARIES} ${MPI_CXX_LIBRARIES} ${METIS_LIBRARY})
+    if(DYNAMIC_LINK_PYTHON)
+        target_link_libraries(mesh ${PYTHON_LIBRARIES}) 
+    endif(DYNAMIC_LINK_PYTHON)
     install( TARGETS mesh ${NG_INSTALL_DIR})
 endif(NOT WIN32)
 

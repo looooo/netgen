@@ -18,6 +18,7 @@ option( INSTALL_PROFILES "install environment variable settings to /etc/profile.
 option( USE_CCACHE       "use ccache")
 option( USE_INTERNAL_TCL "Compile tcl files into the code and don't install them" ON)
 option( BUILD_WITH_CONDA "set this to on if the library is compiled with conda-buid" OFF)
+option( DYNAMIC_LINK_PYTHON "set this to true for static linking to python" OFF)
 
 option( USE_SUPERBUILD       "use ccache" ON)
 

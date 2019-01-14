@@ -5,7 +5,7 @@ if(APPLE)
 endif(APPLE)
 
 if(NOT WIN32)
-    target_link_libraries(geom2d mesh ${PYTHON_LIBRARIES})
+    target_link_libraries(geom2d mesh)
     install( TARGETS geom2d ${NG_INSTALL_DIR})
 endif(NOT WIN32)
 
@@ -13,12 +13,15 @@ if(USE_GUI)
     add_library(geom2dvis ${NG_LIB_TYPE} vsgeom2d.cpp)
     if(NOT WIN32)
         target_link_libraries(geom2dvis geom2d)
+        if(DYNAMIC_LINK_PYTHON)
+            target_link_libraries(geom2dvis ${PYTHON_LIBRARIES})
+        endif(DYNAMIC_LINK_PYTHON)
         install( TARGETS geom2dvis ${NG_INSTALL_DIR})
     endif(NOT WIN32)
 endif(USE_GUI)
 
 install(FILES
-  geom2dmesh.hpp geometry2d.hpp spline2d.hpp
-  vsgeom2d.hpp
-  DESTINATION ${NG_INSTALL_DIR_INCLUDE}/geom2d COMPONENT netgen_devel
+    geom2dmesh.hpp geometry2d.hpp spline2d.hpp
+    vsgeom2d.hpp
+    DESTINATION ${NG_INSTALL_DIR_INCLUDE}/geom2d COMPONENT netgen_devel
 )
