@@ -42,7 +42,7 @@ mesalib = ">=21.0"
 
 [tasks]
 # Konfiguration mit CMake (pybind11 + OCC von conda-forge)
-config = "cmake -B build -G Ninja -DUSE_SUPERBUILD=OFF -DUSE_OCC=ON -DUSE_GUI=ON -DUSE_PYTHON=ON -DUSE_NATIVE_ARCH=OFF -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX -DCMAKE_PREFIX_PATH=$CONDA_PREFIX -DPython3_ROOT_DIR=$CONDA_PREFIX -DOpenCascade_DIR=$CONDA_PREFIX/lib/cmake/opencascade"
+config = "cmake -B build -G Ninja -DUSE_SUPERBUILD=OFF -DUSE_OCC=ON -DUSE_GUI=OFF -DUSE_PYTHON=ON -DUSE_NATIVE_ARCH=OFF -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX -DCMAKE_PREFIX_PATH=$CONDA_PREFIX -DPython3_ROOT_DIR=$CONDA_PREFIX -DOpenCascade_DIR=$CONDA_PREFIX/lib/cmake/opencascade"
 # Build
 build = "cmake --build build"
 # Install (lokal in build/install oder PREFIX)
