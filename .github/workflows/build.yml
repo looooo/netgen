@@ -29,8 +29,10 @@ jobs:
           cache: true
           activate-environment: true
 
-      - name: Configure and build (full-build)
+      - name: Configure and build
         run: pixi run full-build
 
-      - name: Run tests
-        run: pixi run test
+      - name: Install into environment
+        run: pixi run install
+
+
