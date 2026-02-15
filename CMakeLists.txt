@@ -16,7 +16,6 @@ option( USE_NATIVE_ARCH  "build for native cpu architecture" ON)
 
 option( USE_GUI     "build with GUI" ON )
 option( USE_PYTHON  "build with python interface" ON )
-cmake_dependent_option( PREFER_SYSTEM_PYBIND11  "Use system wide PyBind11" OFF "USE_PYTHON" OFF)
 option( USE_MPI     "enable mpi parallelization" OFF )
 option( USE_MPI_WRAPPER "enable mpi wrapper (run-time dispatch of MPI library calls)" OFF )
 option( USE_OCC     "build with OpenCascade geometry kernel interface" ON)
@@ -134,19 +133,33 @@ set(NG_INSTALL_DIR_INCLUDE ${NG_INSTALL_DIR_INCLUDE_DEFAULT} CACHE STRING "Insta
 set(NG_INSTALL_DIR_CMAKE ${NG_INSTALL_DIR_CMAKE_DEFAULT} CACHE STRING "Install directory for CMake files")
 set(NG_INSTALL_DIR_RES ${NG_INSTALL_DIR_RES_DEFAULT} CACHE STRING "Install directory for resources")
 
-get_filename_component(NETGEN_CMAKE_DIR_ABSOLUTE ${NG_INSTALL_DIR_CMAKE} ABSOLUTE BASE_DIR ${CMAKE_INSTALL_PREFIX})
-get_filename_component(NETGEN_BINARY_DIR_ABSOLUTE ${NG_INSTALL_DIR_BIN} ABSOLUTE BASE_DIR ${CMAKE_INSTALL_PREFIX})
-get_filename_component(NETGEN_LIBRARY_DIR_ABSOLUTE ${NG_INSTALL_DIR_LIB} ABSOLUTE BASE_DIR ${CMAKE_INSTALL_PREFIX})
-get_filename_component(NETGEN_INCLUDE_DIR_ABSOLUTE ${NG_INSTALL_DIR_INCLUDE} ABSOLUTE BASE_DIR ${CMAKE_INSTALL_PREFIX})
-get_filename_component(NETGEN_RESOURCE_DIR_ABSOLUTE ${NG_INSTALL_DIR_RES} ABSOLUTE BASE_DIR ${CMAKE_INSTALL_PREFIX})
+# Ensure install prefix is absolute so file(RELATIVE_PATH) gets full paths
+get_filename_component(_NETGEN_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" ABSOLUTE)
+# When prefix resolved to project dir (e.g. empty and cwd=source), use Pixi/conda env if set
+if(_NETGEN_INSTALL_PREFIX STREQUAL "${PROJECT_SOURCE_DIR}")
+  if(DEFINED ENV{PIXI_ENV_PREFIX})
+    set(CMAKE_INSTALL_PREFIX "$ENV{PIXI_ENV_PREFIX}" CACHE PATH "Install directory" FORCE)
+  elseif(DEFINED ENV{CONDA_PREFIX})
+    set(CMAKE_INSTALL_PREFIX "$ENV{CONDA_PREFIX}" CACHE PATH "Install directory" FORCE)
+  endif()
+  if(DEFINED ENV{PIXI_ENV_PREFIX} OR DEFINED ENV{CONDA_PREFIX})
+    get_filename_component(_NETGEN_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" ABSOLUTE)
+  endif()
+endif()
+# Build absolute install paths
+get_filename_component(NETGEN_CMAKE_DIR_ABSOLUTE "${_NETGEN_INSTALL_PREFIX}/${NG_INSTALL_DIR_CMAKE}" ABSOLUTE)
+get_filename_component(NETGEN_BINARY_DIR_ABSOLUTE "${_NETGEN_INSTALL_PREFIX}/${NG_INSTALL_DIR_BIN}" ABSOLUTE)
+get_filename_component(NETGEN_LIBRARY_DIR_ABSOLUTE "${_NETGEN_INSTALL_PREFIX}/${NG_INSTALL_DIR_LIB}" ABSOLUTE)
+get_filename_component(NETGEN_INCLUDE_DIR_ABSOLUTE "${_NETGEN_INSTALL_PREFIX}/${NG_INSTALL_DIR_INCLUDE}" ABSOLUTE)
+get_filename_component(NETGEN_RESOURCE_DIR_ABSOLUTE "${_NETGEN_INSTALL_PREFIX}/${NG_INSTALL_DIR_RES}" ABSOLUTE)
 
-file(RELATIVE_PATH NETGEN_DIR ${NETGEN_CMAKE_DIR_ABSOLUTE} ${CMAKE_INSTALL_PREFIX})
-file(RELATIVE_PATH NETGEN_BINARY_DIR ${NETGEN_CMAKE_DIR_ABSOLUTE} ${NETGEN_BINARY_DIR_ABSOLUTE})
-file(RELATIVE_PATH NETGEN_LIBRARY_DIR ${NETGEN_CMAKE_DIR_ABSOLUTE} ${NETGEN_LIBRARY_DIR_ABSOLUTE})
-file(RELATIVE_PATH NETGEN_INCLUDE_DIR ${NETGEN_CMAKE_DIR_ABSOLUTE} ${NETGEN_INCLUDE_DIR_ABSOLUTE})
-file(RELATIVE_PATH NETGEN_RESOURCE_DIR ${NETGEN_CMAKE_DIR_ABSOLUTE} ${NETGEN_RESOURCE_DIR_ABSOLUTE})
+file(RELATIVE_PATH NETGEN_DIR "${NETGEN_CMAKE_DIR_ABSOLUTE}" "${_NETGEN_INSTALL_PREFIX}")
+file(RELATIVE_PATH NETGEN_BINARY_DIR "${NETGEN_CMAKE_DIR_ABSOLUTE}" "${NETGEN_BINARY_DIR_ABSOLUTE}")
+file(RELATIVE_PATH NETGEN_LIBRARY_DIR "${NETGEN_CMAKE_DIR_ABSOLUTE}" "${NETGEN_LIBRARY_DIR_ABSOLUTE}")
+file(RELATIVE_PATH NETGEN_INCLUDE_DIR "${NETGEN_CMAKE_DIR_ABSOLUTE}" "${NETGEN_INCLUDE_DIR_ABSOLUTE}")
+file(RELATIVE_PATH NETGEN_RESOURCE_DIR "${NETGEN_CMAKE_DIR_ABSOLUTE}" "${NETGEN_RESOURCE_DIR_ABSOLUTE}")
 
-file(RELATIVE_PATH NETGEN_RPATH ${NETGEN_BINARY_DIR_ABSOLUTE} ${NETGEN_LIBRARY_DIR_ABSOLUTE})
+file(RELATIVE_PATH NETGEN_RPATH "${NETGEN_BINARY_DIR_ABSOLUTE}" "${NETGEN_LIBRARY_DIR_ABSOLUTE}")
 
 if (USE_SUPERBUILD)
   # execute the superbuild (this script will be invoked again without the
@@ -196,10 +209,10 @@ include_directories ("${PROJECT_BINARY_DIR}")
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 if(USE_PYTHON)
-    get_filename_component(NETGEN_PYTHON_DIR_ABSOLUTE ${NG_INSTALL_DIR_PYTHON} ABSOLUTE BASE_DIR ${CMAKE_INSTALL_PREFIX})
-    file(RELATIVE_PATH NETGEN_PYTHON_DIR ${NETGEN_CMAKE_DIR_ABSOLUTE} ${NETGEN_PYTHON_DIR_ABSOLUTE})
-    file(RELATIVE_PATH NETGEN_PYTHON_RPATH_BIN ${NETGEN_PYTHON_DIR_ABSOLUTE} ${NETGEN_BINARY_DIR_ABSOLUTE})
-    file(RELATIVE_PATH NETGEN_PYTHON_RPATH ${NETGEN_PYTHON_DIR_ABSOLUTE} ${NETGEN_LIBRARY_DIR_ABSOLUTE})
+    get_filename_component(NETGEN_PYTHON_DIR_ABSOLUTE "${_NETGEN_INSTALL_PREFIX}/${NG_INSTALL_DIR_PYTHON}" ABSOLUTE)
+    file(RELATIVE_PATH NETGEN_PYTHON_DIR "${NETGEN_CMAKE_DIR_ABSOLUTE}" "${NETGEN_PYTHON_DIR_ABSOLUTE}")
+    file(RELATIVE_PATH NETGEN_PYTHON_RPATH_BIN "${NETGEN_PYTHON_DIR_ABSOLUTE}" "${NETGEN_BINARY_DIR_ABSOLUTE}")
+    file(RELATIVE_PATH NETGEN_PYTHON_RPATH "${NETGEN_PYTHON_DIR_ABSOLUTE}" "${NETGEN_LIBRARY_DIR_ABSOLUTE}")
     if(WIN32)
         set(NETGEN_PYTHON_RPATH ${NETGEN_PYTHON_RPATH_BIN})
     endif(WIN32)
@@ -287,13 +300,17 @@ if (USE_GUI)
     find_package(OpenGL REQUIRED)
 
     target_compile_definitions(netgen_gui INTERFACE -DTCL -DOPENGL -DUSE_TOGL_2 -DUSE_TCL_STUBS -DUSE_TK_STUBS)
-    target_include_directories(netgen_gui INTERFACE ${TCL_INCLUDE_PATH} ${TK_INCLUDE_PATH})
+    # BUILD_INTERFACE avoids CMake error when paths lie under source tree (e.g. .pixi env)
+    target_include_directories(netgen_gui INTERFACE
+      $<BUILD_INTERFACE:${TCL_INCLUDE_PATH}>
+      $<BUILD_INTERFACE:${TK_INCLUDE_PATH}>
+    )
     target_link_libraries(netgen_gui INTERFACE ${TCL_STUB_LIBRARY} ${TK_STUB_LIBRARY})
     if(NOT EXISTS ${TK_INCLUDE_PATH}/tkWin.h AND EXISTS ${TK_INCLUDE_PATH}/../win/tkWin.h)
-       target_include_directories(netgen_gui INTERFACE ${TK_INCLUDE_PATH}/../win)
+       target_include_directories(netgen_gui INTERFACE $<BUILD_INTERFACE:${TK_INCLUDE_PATH}/../win>)
     endif()
     if(NOT EXISTS ${TK_INCLUDE_PATH}/x11/Xlib.h AND EXISTS ${TK_INCLUDE_PATH}/../xlib/X11/Xlib.h)
-       target_include_directories(netgen_gui INTERFACE ${TK_INCLUDE_PATH}/../xlib)
+       target_include_directories(netgen_gui INTERFACE $<BUILD_INTERFACE:${TK_INCLUDE_PATH}/../xlib>)
     endif()
 
     target_link_libraries(nggui PUBLIC nglib togl PRIVATE "$<BUILD_INTERFACE:netgen_python>" )
@@ -318,24 +335,17 @@ else()
 endif()
 
 if (USE_PYTHON)
-    if (PREFER_SYSTEM_PYBIND11)
-      set(NG_INSTALL_PYBIND OFF)
-      find_package(pybind11 CONFIG REQUIRED)
-    else()
-      add_subdirectory(external_dependencies/pybind11)
-    endif()
+    # pybind11 from system/conda (find_package), no bundled submodule
+    set(NG_INSTALL_PYBIND OFF)
+    find_package(pybind11 CONFIG REQUIRED)
 
     target_compile_definitions(netgen_python INTERFACE NG_PYTHON NETGEN_PYTHON)
-    target_include_directories(netgen_python INTERFACE ${pybind11_INCLUDE_DIR} ${Python3_INCLUDE_DIRS})
-    target_include_directories(nglib PRIVATE ${pybind11_INCLUDE_DIR} ${Python3_INCLUDE_DIRS})
+    target_link_libraries(netgen_python INTERFACE pybind11::pybind11)
+    target_include_directories(netgen_python INTERFACE ${Python3_INCLUDE_DIRS})
+    target_include_directories(nglib PRIVATE ${Python3_INCLUDE_DIRS})
     if(Python3_LIBRARIES AND (WIN32 OR NOT BUILD_FOR_CONDA))
         target_link_libraries(netgen_python INTERFACE ${Python3_LIBRARIES})
     endif()
-
-    if(NG_INSTALL_PYBIND)
-      install(DIRECTORY ${pybind11_INCLUDE_DIR}/pybind11 DESTINATION ${NG_INSTALL_DIR_INCLUDE} COMPONENT netgen_devel)
-      install(FILES ${pybind11_INCLUDE_DIR}/../LICENSE DESTINATION ${NG_INSTALL_DIR_INCLUDE}/pybind11 COMPONENT netgen_devel)
-    endif(NG_INSTALL_PYBIND)
 endif (USE_PYTHON)
 
 #######################################################################
@@ -753,13 +763,13 @@ endif(WIN32)
 message("
   Install directory:
 
-    ${CMAKE_INSTALL_PREFIX}
+    ${_NETGEN_INSTALL_PREFIX}
 
   Please set the following environment variables:
 
-    NETGENDIR=${CMAKE_INSTALL_PREFIX}/bin")
+    NETGENDIR=${_NETGEN_INSTALL_PREFIX}/${NG_INSTALL_DIR_BIN}")
 if(USE_PYTHON)
-message("    PYTHONPATH=.:${CMAKE_INSTALL_PREFIX}/${PYTHON_PACKAGES_INSTALL_DIR}")
+message("    PYTHONPATH=.:${_NETGEN_INSTALL_PREFIX}/${NG_INSTALL_DIR_PYTHON}")
 endif(USE_PYTHON)
 message("
 ------------------------------------------------------------------------

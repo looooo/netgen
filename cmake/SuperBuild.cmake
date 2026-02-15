@@ -163,35 +163,27 @@ endif()
 
 #######################################################################
 if (USE_PYTHON)
-  find_path(PYBIND_INCLUDE_DIR pybind11/pybind11.h PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external_dependencies/pybind11/include NO_DEFAULT_PATH)
-    set(NG_INSTALL_PYBIND ON)
-    if( NOT PYBIND_INCLUDE_DIR )
-      # if the pybind submodule is missing, try to initialize and update all submodules
-      execute_process(COMMAND git submodule update --init --recursive WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-      find_path(PYBIND_INCLUDE_DIR pybind11/pybind11.h PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external_dependencies/pybind11/include NO_DEFAULT_PATH)
-    endif( NOT PYBIND_INCLUDE_DIR )
-    if( PYBIND_INCLUDE_DIR )
-        message("-- Found Pybind11: ${PYBIND_INCLUDE_DIR}")
-    else( PYBIND_INCLUDE_DIR )
-        message(FATAL_ERROR "Could NOT find pybind11!")
-    endif( PYBIND_INCLUDE_DIR )
-    if(${CMAKE_VERSION} VERSION_GREATER_EQUAL 3.18)
-      find_package(Python3 COMPONENTS Interpreter Development.Module)
-      if(NOT EMSCRIPTEN)
-          find_package(Python3 COMPONENTS Interpreter Development.Embed)
-      endif()
-    else()
-      find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
-    endif()
+  # pybind11 as package (conda/system); no bundled submodule
+  find_package(pybind11 CONFIG REQUIRED)
+  set(NG_INSTALL_PYBIND OFF)
+  message("-- Found pybind11 via find_package (config)")
 
-    set_vars(NETGEN_CMAKE_ARGS
-      Python3_INCLUDE_DIRS
-      Python3_LIBRARIES
-      Python3_EXECUTABLE
-      Python3_VERSION
-      PYBIND_INCLUDE_DIR
-      NG_INSTALL_PYBIND
-      )
+  if(${CMAKE_VERSION} VERSION_GREATER_EQUAL 3.18)
+    find_package(Python3 COMPONENTS Interpreter Development.Module)
+    if(NOT EMSCRIPTEN)
+        find_package(Python3 COMPONENTS Interpreter Development.Embed)
+    endif()
+  else()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+  endif()
+
+  set_vars(NETGEN_CMAKE_ARGS
+    Python3_INCLUDE_DIRS
+    Python3_LIBRARIES
+    Python3_EXECUTABLE
+    Python3_VERSION
+    NG_INSTALL_PYBIND
+    )
 endif (USE_PYTHON)
 
 #######################################################################
@@ -309,23 +301,6 @@ ExternalProject_Add (netgen
   BUILD_COMMAND ${NETGEN_BUILD_COMMAND}
   STEP_TARGETS build
 )
-
-# Check if the git submodules (i.e. pybind11) are up to date
-# in case, something is wrong, emit a warning but continue
- ExternalProject_Add_Step(netgen check_submodules
-   COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_submodules.cmake
-   DEPENDERS install # Steps on which this step depends
-   )
-
-# Due to 'ALWAYS 1', this step is always run which also forces a build of
-# the Netgen subproject
- ExternalProject_Add_Step(netgen check_submodules1
-   COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_submodules.cmake
-   DEPENDEES configure # Steps on which this step depends
-   DEPENDERS build     # Steps that depend on this step
-   ALWAYS 1            # No stamp file, step always runs
-   )
-
 
 install(CODE "execute_process(COMMAND \"${CMAKE_COMMAND}\" --build . --target install --config ${CMAKE_BUILD_TYPE} WORKING_DIRECTORY \"${CMAKE_CURRENT_BINARY_DIR}/netgen\")")
 
