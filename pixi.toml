@@ -31,3 +31,7 @@ install = "cmake --install build --prefix $CONDA_PREFIX"
 [tasks.full-build]
 # Vollständiger Build inkl. Konfiguration
 depends-on = ["config", "build"]
+
+[tasks.test-import]
+# Smoke-Test: Python-Bindings (nach `pixi run install` in $CONDA_PREFIX)
+cmd = "python -c \"import netgen; print('import netgen: OK')\""

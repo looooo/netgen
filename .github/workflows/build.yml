@@ -34,4 +34,6 @@ jobs:
       - name: Install into environment
         run: pixi run install
 
+      - name: Verify Python import (netgen)
+        run: pixi run test-import
 
