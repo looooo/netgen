@@ -119,29 +119,29 @@ endif()
 
 if(APPLE AND NOT EMSCRIPTEN)
   set(NG_RPATH_TOKEN "@loader_path")
-  # Conda/pixi: flat prefix (bin, lib, site-packages) — not Contents/MacOS bundle layout
+  # Conda/pixi: flat prefix (bin, lib, site-packages) — not Contents/... bundle layout.
+  # CMake string compare fails when sys.prefix is under Contents/Resources but PREFIX is env root;
+  # use Python realpath and match CONDA_PREFIX / PIXI_ENV_PREFIX / sys.prefix.
   set(_ng_conda_flat_layout FALSE)
   if(BUILD_FOR_CONDA)
     set(_ng_conda_flat_layout TRUE)
-  else()
-    get_filename_component(_cmp_pre "${_NETGEN_INSTALL_PREFIX}" ABSOLUTE)
-    if(DEFINED ENV{CONDA_PREFIX})
-      get_filename_component(_cmp_env "${ENV{CONDA_PREFIX}}" ABSOLUTE)
-      if(_cmp_env STREQUAL _cmp_pre)
-        set(_ng_conda_flat_layout TRUE)
-      endif()
-    endif()
-    if(NOT _ng_conda_flat_layout AND DEFINED ENV{PIXI_ENV_PREFIX})
-      get_filename_component(_cmp_env "${ENV{PIXI_ENV_PREFIX}}" ABSOLUTE)
-      if(_cmp_env STREQUAL _cmp_pre)
-        set(_ng_conda_flat_layout TRUE)
-      endif()
-    endif()
-    if(NOT _ng_conda_flat_layout AND USE_PYTHON AND NOT CMAKE_CROSSCOMPILING)
-      get_filename_component(_pycmp "${Python3_PREFIX_ABS}" ABSOLUTE)
-      if(_pycmp STREQUAL _cmp_pre)
-        set(_ng_conda_flat_layout TRUE)
-      endif()
+  elseif(USE_PYTHON AND NOT CMAKE_CROSSCOMPILING)
+    execute_process(COMMAND ${Python3_EXECUTABLE} -c [[
+import os, sys
+pre = os.path.realpath(sys.argv[1])
+opts = set()
+for k in ('CONDA_PREFIX', 'PIXI_ENV_PREFIX'):
+    v = os.environ.get(k)
+    if v:
+        opts.add(os.path.realpath(v))
+if opts:
+    opts.add(os.path.realpath(sys.prefix))
+print('1' if pre in opts else '0')
+]]
+      "${_NETGEN_INSTALL_PREFIX}"
+      OUTPUT_VARIABLE _ng_flat_mac OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(_ng_flat_mac STREQUAL "1")
+      set(_ng_conda_flat_layout TRUE)
     endif()
   endif()
   if(_ng_conda_flat_layout)
@@ -174,12 +174,22 @@ else(APPLE AND NOT EMSCRIPTEN)
   set(NG_RPATH_TOKEN "\$ORIGIN")
 endif(APPLE AND NOT EMSCRIPTEN)
 
-set(NG_INSTALL_DIR_PYTHON ${NG_INSTALL_DIR_PYTHON_DEFAULT} CACHE STRING "Install directory for Python files")
-set(NG_INSTALL_DIR_BIN ${NG_INSTALL_DIR_BIN_DEFAULT} CACHE STRING "Install directory for executables")
-set(NG_INSTALL_DIR_LIB ${NG_INSTALL_DIR_LIB_DEFAULT} CACHE STRING "Install directory for libraries")
-set(NG_INSTALL_DIR_INCLUDE ${NG_INSTALL_DIR_INCLUDE_DEFAULT} CACHE STRING "Install directory for header files")
-set(NG_INSTALL_DIR_CMAKE ${NG_INSTALL_DIR_CMAKE_DEFAULT} CACHE STRING "Install directory for CMake files")
-set(NG_INSTALL_DIR_RES ${NG_INSTALL_DIR_RES_DEFAULT} CACHE STRING "Install directory for resources")
+# Overwrite stale cache (e.g. Contents/...) when conda/pixi flat layout is detected on macOS
+if(APPLE AND NOT EMSCRIPTEN AND _ng_conda_flat_layout)
+  set(NG_INSTALL_DIR_PYTHON ${NG_INSTALL_DIR_PYTHON_DEFAULT} CACHE STRING "Install directory for Python files" FORCE)
+  set(NG_INSTALL_DIR_BIN ${NG_INSTALL_DIR_BIN_DEFAULT} CACHE STRING "Install directory for executables" FORCE)
+  set(NG_INSTALL_DIR_LIB ${NG_INSTALL_DIR_LIB_DEFAULT} CACHE STRING "Install directory for libraries" FORCE)
+  set(NG_INSTALL_DIR_INCLUDE ${NG_INSTALL_DIR_INCLUDE_DEFAULT} CACHE STRING "Install directory for header files" FORCE)
+  set(NG_INSTALL_DIR_CMAKE ${NG_INSTALL_DIR_CMAKE_DEFAULT} CACHE STRING "Install directory for CMake files" FORCE)
+  set(NG_INSTALL_DIR_RES ${NG_INSTALL_DIR_RES_DEFAULT} CACHE STRING "Install directory for resources" FORCE)
+else()
+  set(NG_INSTALL_DIR_PYTHON ${NG_INSTALL_DIR_PYTHON_DEFAULT} CACHE STRING "Install directory for Python files")
+  set(NG_INSTALL_DIR_BIN ${NG_INSTALL_DIR_BIN_DEFAULT} CACHE STRING "Install directory for executables")
+  set(NG_INSTALL_DIR_LIB ${NG_INSTALL_DIR_LIB_DEFAULT} CACHE STRING "Install directory for libraries")
+  set(NG_INSTALL_DIR_INCLUDE ${NG_INSTALL_DIR_INCLUDE_DEFAULT} CACHE STRING "Install directory for header files")
+  set(NG_INSTALL_DIR_CMAKE ${NG_INSTALL_DIR_CMAKE_DEFAULT} CACHE STRING "Install directory for CMake files")
+  set(NG_INSTALL_DIR_RES ${NG_INSTALL_DIR_RES_DEFAULT} CACHE STRING "Install directory for resources")
+endif()
 
 # _NETGEN_INSTALL_PREFIX was set above (before APPLE layout)
 # Build absolute install paths
