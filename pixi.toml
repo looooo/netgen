@@ -35,3 +35,8 @@ depends-on = ["config", "build"]
 [tasks.test-import]
 # Smoke-Test: Python-Bindings (nach `pixi run install` in $CONDA_PREFIX)
 cmd = "python -c \"import netgen; print('import netgen: OK')\""
+
+[tasks.otool-ngcore]
+# macOS: otool -L auf libngcore.dylib und pyngcore*.so (sonst Skip)
+depends-on = ["install"]
+cmd = "python scripts/pixi_otool_ngcore.py"
