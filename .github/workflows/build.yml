@@ -8,15 +8,20 @@ on:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
+            label: ubuntu-24.04
           - os: macos-14
+            label: macos-14-arm64
+          - os: macos-15-intel
+            label: macos-x64
           - os: windows-latest
+            label: windows-latest
 
     steps:
       - name: Checkout
