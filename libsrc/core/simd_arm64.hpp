@@ -158,12 +158,12 @@ namespace ngcore
 
   NETGEN_INLINE SIMD<mask64,2> operator== (SIMD<int64_t> a, SIMD<int64_t> b)
   {
-    return vceqq_u64(a.Data(), b.Data());
+    return vreinterpretq_s64_u64(vceqq_s64(a.Data(), b.Data()));
   }
   
   NETGEN_INLINE SIMD<mask64,2> operator> (SIMD<int64_t> a, SIMD<int64_t> b)
   {
-    return vcgtq_s64(a.Data(), b.Data());
+    return vreinterpretq_s64_u64(vcgtq_s64(a.Data(), b.Data()));
   }
 
   
