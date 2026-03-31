@@ -16,6 +16,8 @@ jobs:
         include:
           - os: ubuntu-24.04
             label: ubuntu-24.04
+          - os: ubuntu-24.04-arm
+            label: ubuntu-24.04-aarch64
           - os: macos-14
             label: macos-14-arm64
           - os: macos-15-intel
