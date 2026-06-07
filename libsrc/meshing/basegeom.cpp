@@ -30,8 +30,18 @@ namespace netgen
       }
   };
 
-  DLL_HEADER GeometryRegisterArray geometryregister;
-  //DLL_HEADER NgArray<GeometryRegister*> geometryregister;
+  void ShapeProperties :: DoArchive( Archive & ar )
+  {
+      ar & name & col & maxh & hpref & layer;
+      if(ar.GetVersion("netgen") > "v6.2.2506-14")
+          ar & partition & quad_dominated;
+  }
+
+  GeometryRegisterArray& GeometryRegister()
+  {
+    static GeometryRegisterArray geometryregister;
+    return geometryregister;
+  }
 
   GeometryRegister :: ~GeometryRegister()
   { ; }
@@ -214,22 +224,24 @@ namespace netgen
       }
   }
 
-  struct Line
-  {
-    Point<3> p0, p1;
-    inline double Length() const { return (p1-p0).Length(); }
-    inline double Dist(const Line& other) const
+  namespace {
+    struct Line
     {
-      Vec<3> n = p1-p0;
-      Vec<3> q = other.p1-other.p0;
-      double nq = n*q;
-      Point<3> p = p0 + 0.5*n;
-      double lambda = (p-other.p0)*n / (nq + 1e-10);
-      if (lambda >= 0 && lambda <= 1)
-        return (p-other.p0-lambda*q).Length();
-      return 1e99;
-    }
-  };
+      Point<3> p0, p1;
+      inline double Length() const { return (p1-p0).Length(); }
+      inline double Dist(const Line& other) const
+      {
+        Vec<3> n = p1-p0;
+        Vec<3> q = other.p1-other.p0;
+        double nq = n*q;
+        Point<3> p = p0 + 0.5*n;
+        double lambda = (p-other.p0)*n / (nq + 1e-10);
+        if (lambda >= 0 && lambda <= 1)
+          return (p-other.p0-lambda*q).Length();
+        return 1e99;
+      }
+    };
+  }
 
   void NetgenGeometry :: Clear()
   {
@@ -472,7 +484,7 @@ namespace netgen
       }
 
     for(const auto& mspnt : mparam.meshsize_points)
-      mesh.RestrictLocalH(mspnt.pnt, mspnt.h);
+      mesh.RestrictLocalH(mspnt.pnt, mspnt.h, mspnt.layer);
 
     mesh.LoadLocalMeshSize(mparam.meshsizefilename);
   }
@@ -582,16 +594,17 @@ namespace netgen
 
     Array<PointIndex> vert2meshpt(vertices.Size());
     vert2meshpt = PointIndex::INVALID;
+
     for(auto & vert : vertices)
       {
         auto pi = mesh.AddPoint(vert->GetPoint(), vert->properties.layer);
         vert2meshpt[vert->nr] = pi;
         mesh[pi].Singularity(vert->properties.hpref);
         mesh[pi].SetType(FIXEDPOINT);
-
-        Element0d el(pi, pi);
+        
+        Element0d el(pi, pi-IndexBASE<PointIndex>()+1);
         el.name = vert->properties.GetName();
-        mesh.SetCD3Name(pi, el.name);
+        mesh.SetCD3Name(pi-IndexBASE<PointIndex>()+1, el.name);
         mesh.pointelements.Append (el);
       }
 
@@ -1217,6 +1230,7 @@ namespace netgen
       {
         PrintMessage(3, "Optimization step ", i);
         meshopt.SetFaceIndex(k+1);
+        meshopt.SetMetricWeight (mparam.elsizeweight);
         int innerstep = 0;
         for(auto optstep : mparam.optimize2d)
           {
@@ -1310,6 +1324,13 @@ namespace netgen
 
     if(multithread.terminate || mparam.perfstepsend <= MESHCONST_MESHEDGES)
       return 0;
+
+    if(dimension == 1)
+      {
+        FinalizeMesh(*mesh);
+        mesh->SetDimension(1);
+        return 0;
+      }
 
     if (mparam.perfstepsstart <= MESHCONST_MESHSURFACE)
       {

@@ -923,7 +923,7 @@ namespace netgen
          // Need do copy the face, otherwise replace is ignored
          BRepBuilderAPI_Copy copy(face);
          auto newface = copy.Shape().Reversed();
-         GetProperties(newface).Merge(GetProperties(face));
+         PropagateProperties(copy, face);
          rebuild->Replace(face, newface);
        }
      }
@@ -1132,6 +1132,21 @@ namespace netgen
          }
       }
       */
+
+      std::map<int, ArrayMem<int, 10>> free_edges_in_solid;
+      for(auto i1 : Range(1, somap.Extent()+1))
+      {
+          auto s = somap(i1);
+          for (auto edge : MyExplorer(s, TopAbs_EDGE, TopAbs_WIRE))
+            if (!emap.Contains(edge))
+              {
+                free_edges_in_solid[i1].Append(emap.Add (edge));
+                for (auto vertex : MyExplorer(edge, TopAbs_VERTEX))
+                  if (!vmap.Contains(vertex))
+                    vmap.Add (vertex);
+              }
+      }
+
       for (auto edge : MyExplorer(shape, TopAbs_EDGE, TopAbs_WIRE))
         if (!emap.Contains(edge))
           {
@@ -1207,7 +1222,8 @@ namespace netgen
           if(verts.size() == 0)
             continue;
           auto occ_edge = make_unique<OCCEdge>(edge, GetVertex(verts[0]), GetVertex(verts[1]) );
-          occ_edge->properties = GetProperties(e);
+          if(HaveProperties(edge))
+            occ_edge->properties = GetProperties(e);
           edges.Append(std::move(occ_edge));
       }
 
@@ -1256,6 +1272,16 @@ namespace netgen
               if(face.Shape().Orientation() == TopAbs_INTERNAL)
                   face.domout = k;
           }
+
+          if(free_edges_in_solid.count(i1))
+            for(auto ei : free_edges_in_solid[i1])
+            {
+              auto & edge = GetEdge(emap(ei));
+              edge.properties.maxh = min(edge.properties.maxh, occ_solid->properties.maxh);
+              edge.domin = k;
+              edge.domout = k;
+              occ_solid->free_edges.Append(&GetEdge(emap(ei)));
+            }
           solids.Append(std::move(occ_solid));
       }
 
@@ -1722,7 +1748,10 @@ namespace netgen
     Array<TopoDS_Shape> shape_list;
 
     ar & dimension;
-    for (auto typ : { TopAbs_SOLID, TopAbs_FACE,  TopAbs_EDGE })
+    auto types = Array<TopAbs_ShapeEnum>{ TopAbs_SOLID, TopAbs_FACE,  TopAbs_EDGE };
+    if(ar.GetVersion("netgen") >= "v6.2.2406-22")
+      types.Append(TopAbs_VERTEX);
+    for (auto typ : types)
       for (TopExp_Explorer e(shape, typ); e.More(); e.Next())
         {
           auto ds = e.Current();
@@ -1744,8 +1773,19 @@ namespace netgen
         ar & has_identifications;
         if(has_identifications)
           {
-            auto & idents = GetIdentifications(s);
-            auto n_idents = idents.size();
+            int n_idents;
+            std::vector<OCCIdentification> used_idents;
+            if(ar.Output())
+              {
+                // only use identifications that are used within the geometry
+                for(auto& id : GetIdentifications(s))
+                  {
+                    if(shape_map.Contains(id.from) && shape_map.Contains(id.to))
+                      used_idents.push_back(id);
+                  }
+                n_idents = used_idents.size();
+              }
+            auto & idents = ar.Output() ? used_idents : GetIdentifications(s);
             ar & n_idents;
             idents.resize(n_idents);
             for(auto i : Range(n_idents))
@@ -2249,10 +2289,22 @@ namespace netgen
             XCAFPrs::CollectStyleSettings(label, loc, set);
             XCAFPrs_Style aStyle;
             set.FindFromKey(e.Current(), aStyle);
-
-            auto & prop = OCCGeometry::GetProperties(e.Current());
             if(aStyle.IsSetColorSurf())
-                prop.col = step_utils::ReadColor(aStyle.GetColorSurfRGBA());
+              {
+                for(TopExp_Explorer e2(e.Current(), TopAbs_FACE); e2.More(); e2.Next())
+                  {
+                    auto & prop = OCCGeometry::GetProperties(e2.Current());
+                    prop.col = step_utils::ReadColor(aStyle.GetColorSurfRGBA());
+                  }
+              }
+            if(aStyle.IsSetColorCurv())
+              {
+                for(TopExp_Explorer e2(e.Current(), TopAbs_EDGE); e2.More(); e2.Next())
+                  {
+                    auto & prop = OCCGeometry::GetProperties(e2.Current());
+                    prop.col = step_utils::ReadColor(aStyle.GetColorSurfRGBA());
+                  }
+              }
           }
 
         // load names
@@ -2267,10 +2319,14 @@ namespace netgen
 
             TopoDS_Shape shape = TransferBRep::ShapeResult(transProc->Find(item));
             string name = item->Name()->ToCString();
-            if (!transProc->IsBound(item))
+            if (!transProc->IsBound(item) || name == "")
               continue;
 
-            OCCGeometry::GetProperties(shape).name = name;
+            // we only allow names on SOLIDS, FACES, EDGES, VERTICES.
+            // if name is given on a compound, assume it should be on all subshapes
+            // of highest dimension
+            for(auto & s : GetHighestDimShapes(shape))
+              OCCGeometry::GetProperties(s).name = name;
           }
 
 

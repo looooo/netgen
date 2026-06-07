@@ -9,6 +9,7 @@ The interface between the GUI and the netgen library
 #include <linalg.hpp>
 
 #include <meshing.hpp>
+#include "../libsrc/meshing/boundarylayer.hpp"
 
 
 #include <inctcl.hpp>
@@ -194,7 +195,7 @@ namespace netgen
         if(mesh->GetGeometry())
           ng_geometry = mesh->GetGeometry();
       }
-    catch (NgException e)
+    catch (const NgException & e)
       {
 	PrintMessage (3, e.What());
 	return TCL_ERROR;
@@ -269,7 +270,7 @@ namespace netgen
 	      geometry -> LoadSurfaces(infile);
 	  }
       }
-    catch (NgException e)
+    catch (const NgException & e)
       {
 	PrintMessage (3, e.What());
 	return TCL_ERROR;
@@ -482,15 +483,15 @@ namespace netgen
 
     try
       {
-	for (int i = 0; i < geometryregister.Size(); i++)
+	for (auto loader : GeometryRegister())
 	  {
-	    NetgenGeometry * hgeom = geometryregister[i]->Load (lgfilename);
+	    NetgenGeometry * hgeom = loader->Load (lgfilename);
 	    if (hgeom)
 	      {
                 // delete ng_geometry;
 		// ng_geometry = hgeom;
                 ng_geometry = shared_ptr<NetgenGeometry> (hgeom);
-                geometryregister[i]->SetParameters(interp);
+                loader->SetParameters(interp);
 		
 		mesh.reset();
 		return TCL_OK;
@@ -551,7 +552,7 @@ namespace netgen
 	  }
       }
 
-    catch (NgException e)
+    catch (const NgException & e)
       {
 	Tcl_SetResult (interp, const_cast<char*> (e.What().c_str()), TCL_VOLATILE);
 	return TCL_ERROR;
@@ -582,7 +583,7 @@ namespace netgen
 	  {
 	    ng_geometry -> Save (string (cfilename));
 	  }
-	catch (NgException e)
+	catch (const NgException & e)
 	  {
 	    Tcl_SetResult (interp, const_cast<char*> (e.What().c_str()), TCL_VOLATILE);
 	    return TCL_ERROR;
@@ -1440,7 +1441,7 @@ namespace netgen
 	PrintMessage (1, "Meshing done, time = ", GetTime(), " sec");
       }
 
-    catch (NgException e)
+    catch (const NgException & e)
       {
 	cout << e.What() << endl;
       }
@@ -1492,8 +1493,8 @@ namespace netgen
     extern void Render(bool blocking);
     mparam.render_function = &Render;
 
-    for (int i = 0; i < geometryregister.Size(); i++)
-      geometryregister[i] -> SetParameters (interp);
+    for (auto loader : GeometryRegister())
+      loader -> SetParameters (interp);
 
 
     Ng_SetMeshingParameters (clientData, interp, 0, argv);
@@ -1943,9 +1944,9 @@ namespace netgen
       {
 	if (strcmp (vismode, "geometry") == 0)
 	  {
-	    for (int i = 0; i < geometryregister.Size(); i++)
+	    for (auto loader : GeometryRegister())
 	      {
-		VisualScene * hvs = geometryregister[i]->GetVisualScene (ng_geometry.get());
+		VisualScene * hvs = loader->GetVisualScene (ng_geometry.get());
 		if (hvs)
 		  {
 		    vs = hvs;

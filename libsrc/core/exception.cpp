@@ -5,6 +5,16 @@
 #include <iostream>
 #endif // EMSCRIPTEN
 
+// no backtrace on Emscripten
+// backtrace on Apple platforms with GNUC (does not define __GLIBC__)
+// backtrace on GNU/Linux with glibc
+// no backtrace with musl libc
+#if !defined(__EMSCRIPTEN__) && ( \
+     (defined(__APPLE__) && defined(__GNUC__)) || \
+     (defined(__GNUC__) && defined(__GLIBC__)) )
+#define NG_HAVE_BACKTRACE
+#endif
+
 namespace ngcore
 {
   Exception :: Exception(const std::string& s)
@@ -50,7 +60,7 @@ namespace ngcore
   
   RangeException :: RangeException (// const std::string & where,
                                     const char * where,
-                                    int ind, int imin, int imax) : Exception("")
+                                    ptrdiff_t ind, ptrdiff_t imin, ptrdiff_t imax) : Exception("")
   {
     std::stringstream str;
     str << where << ": index " << ind << " out of range [" << imin << "," << imax << ")\n";
@@ -59,7 +69,7 @@ namespace ngcore
   }
   
 
-  void ThrowRangeException(const char * s, int ind, int imin, int imax)
+  void ThrowRangeException(const char * s, ptrdiff_t ind, ptrdiff_t imin, ptrdiff_t imax)
   {
     throw RangeException(s, ind, imin, imax);
   }
@@ -75,7 +85,7 @@ namespace ngcore
   }
 
 
-  void ThrowNotTheSameException(const char * s, long int a, long int b)
+  void ThrowNotTheSameException(const char * s, ptrdiff_t a, ptrdiff_t b)
   {
     throw ngcore::Exception(std::string(s) + ", a="+ToString(a) + ", b="+ToString(b) + GetBackTrace());     
   }
@@ -84,7 +94,7 @@ namespace ngcore
 
 
 // ********* STUFF FOR GETBACKTRACE ***************************
-#if defined __GNUC__ && !defined __EMSCRIPTEN__
+#ifdef NG_HAVE_BACKTRACE
 
 #include <execinfo.h>
 #include <string.h>
@@ -287,7 +297,7 @@ static bool dummy = []()
     return true;
 }();
 
-#else // __GNUC__ and not __EMSCRIPTEN__
+#else // NG_HAVE_BACKTRACE
 
 namespace ngcore
 {
@@ -297,4 +307,4 @@ namespace ngcore
   }
 } // namespace ngcore
 
-#endif // __GNUC__
+#endif // NG_HAVE_BACKTRACE

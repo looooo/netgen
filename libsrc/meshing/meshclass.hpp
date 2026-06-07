@@ -19,6 +19,7 @@
 #include "meshtype.hpp"
 #include "localh.hpp"
 #include "topology.hpp"
+#include "paralleltop.hpp"
 
 namespace netgen
 {
@@ -42,7 +43,7 @@ namespace netgen
   class MarkedTri;
   class MarkedQuad;
 
-  typedef Array<MarkedTet> T_MTETS;
+  typedef Array<MarkedTet,ElementIndex> T_MTETS;
   typedef NgArray<MarkedPrism> T_MPRISMS;
   typedef NgArray<MarkedIdentification> T_MIDS;
   typedef NgArray<MarkedTri> T_MTRIS;
@@ -127,18 +128,26 @@ namespace netgen
     */
     NgArray<EdgeDescriptor> edgedecoding;
 
+    Array<string*> region_name_cd[4];
+    Array<string*> & materials = region_name_cd[0];
+    Array<string*> & bcnames   = region_name_cd[1];
+    Array<string*> & cd2names  = region_name_cd[2];
+    Array<string*> & cd3names  = region_name_cd[3];
+
+    /*
     /// sub-domain materials 
-    NgArray<string*> materials;
+    Array<string*> materials;
 
     /// labels for boundary conditions
-    NgArray<string*> bcnames;
+    Array<string*> bcnames;
 
     /// labels for co dim 2 bboundary conditions
-    NgArray<string*> cd2names;
+    Array<string*> cd2names;
 
     /// labels for co dim 3 bbboundary conditions
-    NgArray<string*> cd3names;
-
+    Array<string*> cd3names;
+    */
+    
     /// Periodic surface, close surface, etc. identifications
     unique_ptr<Identifications> ident;
 
@@ -147,9 +156,10 @@ namespace netgen
     int numvertices;
 
     /// geometric search tree for interval intersection search
-    unique_ptr<BoxTree<3>> elementsearchtree;
+    unique_ptr<BoxTree<3, ElementIndex>> elementsearchtree_vol;
+    unique_ptr<BoxTree<3, SurfaceElementIndex>> elementsearchtree_surf;
     /// time stamp for tree
-    mutable int elementsearchtreets;
+    mutable size_t elementsearchtreets[4];
 
     /// element -> face, element -> edge etc ...
     MeshTopology topology;
@@ -199,14 +209,16 @@ namespace netgen
 
     DLL_HEADER bool PointContainedIn2DElement(const Point3d & p,
 				   double lami[3],
-				   const int element,
+				   SurfaceElementIndex element,
 				   bool consider3D = false) const;
     DLL_HEADER bool PointContainedIn3DElement(const Point3d & p,
 				   double lami[3],
-				   const int element) const;
+                                   ElementIndex element,
+                                   double tol=1e-4) const;
     DLL_HEADER bool PointContainedIn3DElementOld(const Point3d & p,
 				      double lami[3],
-				      const int element) const;
+                                      ElementIndex element,
+                                      double tol=1e-4) const;
 
   public:
     Signal<> updateSignal;
@@ -222,11 +234,11 @@ namespace netgen
     // number of vertices on each refinement level:
     NgArray<size_t> level_nv;
     /// refinement hierarchy
-    NgArray<PointIndices<2>,PointIndex::BASE> mlbetweennodes;
+    Array<PointIndices<2>,PointIndex> mlbetweennodes;
     /// parent element of volume element
-    NgArray<int> mlparentelement;
+    Array<ElementIndex, ElementIndex> mlparentelement;
     /// parent element of surface element
-    NgArray<int> mlparentsurfaceelement;
+    Array<SurfaceElementIndex, SurfaceElementIndex> mlparentsurfaceelement;
 
 
 
@@ -269,17 +281,19 @@ namespace netgen
     auto GetNP () const { return points.Size(); }
 
     // [[deprecated("Use Point(PointIndex) instead of int !")]]        
-    MeshPoint & Point(int i)
+    MeshPoint & Point(int i) // 1-based
     {
       // return points.Elem(i);
-      return Point (PointIndex(i+PointIndex::BASE-1));
-    }
+      // return Point (PointIndex(i+PointIndex::BASE-1));
+      return Point (PointIndex(IndexBASE<PointIndex>()+i-1)); 
+    } 
     MeshPoint & Point(PointIndex pi) { return points[pi]; }
     // [[deprecated("Use Point(PointIndex) instead of int !")]]            
     const MeshPoint & Point(int i) const
     {
       // return points.Get(i);
-      return Point (PointIndex(i+PointIndex::BASE-1));      
+      // return Point (PointIndex(i+PointIndex::BASE-1));
+      return Point (PointIndex(IndexBASE<PointIndex>()+i-1));       
     }
     const MeshPoint & Point(PointIndex pi) const { return points[pi]; }
 
@@ -375,7 +389,7 @@ namespace netgen
     const auto & SurfaceElements() const { return surfelements; }
     auto & SurfaceElements() { return surfelements; }
 
-  
+    
     DLL_HEADER void RebuildSurfaceElementLists ();
     DLL_HEADER void GetSurfaceElementsOfFace (int facenr, Array<SurfaceElementIndex> & sei) const;
 
@@ -386,9 +400,9 @@ namespace netgen
     auto GetNE () const { return volelements.Size(); }
 
     // [[deprecated("Use VolumeElement(ElementIndex) instead of int !")]]    
-    Element & VolumeElement(int i) { return volelements[i-1]; }
+    Element & VolumeElement(int i) { return volelements[IndexBASE<ElementIndex>()+(i-1)]; }
     // [[deprecated("Use VolumeElement(ElementIndex) instead of int !")]]        
-    const Element & VolumeElement(int i) const { return volelements[i-1]; }
+    const Element & VolumeElement(int i) const { return volelements[IndexBASE<ElementIndex>()+(i-1)]; }
     // [[deprecated("Use mesh[](VolumeElementIndex) instead !")]]
     Element & VolumeElement(ElementIndex i) { return volelements[i]; }
     // [[deprecated("Use mesh[](VolumeElementIndex) instead !")]]
@@ -423,7 +437,7 @@ namespace netgen
     DLL_HEADER void CalcSurfacesOfNode ();
 
     /// additional (temporarily) fix points 
-    void FixPoints (const NgBitArray & fixpoints);
+    void FixPoints (const TBitArray<PointIndex> & fixpoints);
 
     /**
        finds elements without neighbour and
@@ -505,7 +519,7 @@ namespace netgen
     ///
     LocalH & LocalHFunction (int layer=1) { return * lochfunc[layer-1]; }
 
-    shared_ptr<LocalH> GetLocalH(int layer=1) const
+    shared_ptr<LocalH> & GetLocalH(int layer=1) const
     {
       if(lochfunc.Size() == 1)
         return lochfunc[0];
@@ -551,8 +565,8 @@ namespace netgen
     {
       if(!boundaryedges)
 	const_cast<Mesh *>(this)->BuildBoundaryEdges();
-
-      INDEX_2 i2 (pi1, pi2);
+      
+      PointIndices<2> i2(pi1, pi2);
       i2.Sort();
       return boundaryedges->Used (i2);
     }
@@ -564,14 +578,14 @@ namespace netgen
 
     bool IsSegment (PointIndex pi1, PointIndex pi2) const
     {
-      INDEX_2 i2 (pi1, pi2);
+      PointIndices<2> i2 (pi1, pi2);
       i2.Sort();
       return segmentht->Used (i2);
     }
 
     SegmentIndex SegmentNr (PointIndex pi1, PointIndex pi2) const
     {
-      INDEX_2 i2 (pi1, pi2);
+      PointIndices<2> i2(pi1, pi2);
       i2.Sort();
       return segmentht->Get (i2);
     }
@@ -604,13 +618,14 @@ namespace netgen
 	DLL_HEADER void ImproveMesh (const MeshingParameters & mp, OPTIMIZEGOAL goal = OPT_QUALITY);
 
     ///
-    void ImproveMeshJacobian (const MeshingParameters & mp, OPTIMIZEGOAL goal = OPT_QUALITY, const NgBitArray * usepoint = NULL);
+    void ImproveMeshJacobian (const MeshingParameters & mp, OPTIMIZEGOAL goal = OPT_QUALITY,
+                              const TBitArray<PointIndex> * usepoint = NULL);
     ///
     void ImproveMeshJacobianOnSurface (const MeshingParameters & mp,
-				       const NgBitArray & usepoint, 
+				       const TBitArray<PointIndex> & usepoint, 
 				       const NgArray< Vec<3>* > & nv,
 				       OPTIMIZEGOAL goal = OPT_QUALITY,
-				       const NgArray< NgArray<int,PointIndex::BASE>* > * idmaps = NULL);
+				       const NgArray< idmap_type* > * idmaps = NULL);
     /**
        free nodes in environment of openelements 
        for optimiztion
@@ -659,35 +674,50 @@ namespace netgen
 
 
     /// build box-search tree
-    DLL_HEADER void BuildElementSearchTree ();
+    DLL_HEADER void BuildElementSearchTree (int dim);
+    BoxTree<3, ElementIndex>* GetElementSearchTree () const
+    {
+        return elementsearchtree_vol.get();
+    }
+
+    BoxTree<3, SurfaceElementIndex>* GetSurfaceElementSearchTree () const
+    {
+      return elementsearchtree_surf.get();
+    }
 
     void SetPointSearchStartElement(const int el) const {ps_startelement = el;}
 
     /// gives element of point, barycentric coordinates
-    DLL_HEADER int GetElementOfPoint (const netgen::Point<3> & p,
-			   double * lami,
-			   bool build_searchtree = 0,
-			   const int index = -1,
-			   const bool allowindex = true) const;
-    DLL_HEADER int GetElementOfPoint (const netgen::Point<3> & p,
-			   double * lami,
-			   const NgArray<int> * const indices,
-			   bool build_searchtree = 0,
-			   const bool allowindex = true) const;
-    DLL_HEADER int GetSurfaceElementOfPoint (const netgen::Point<3> & p,
-				  double * lami,
-				  bool build_searchtree = 0,
-				  const int index = -1,
-				  const bool allowindex = true) const;
-    DLL_HEADER int GetSurfaceElementOfPoint (const netgen::Point<3> & p,
-				  double * lami,
-				  const NgArray<int> * const indices,
-				  bool build_searchtree = 0,
-				  const bool allowindex = true) const;
+    DLL_HEADER ElementIndex
+    GetElementOfPoint (const netgen::Point<3> & p,
+                       double * lami,
+                       bool build_searchtree = false,
+                       int index = -1,
+                       bool allowindex = true,
+                       double tol=1e-4) const;
+    DLL_HEADER ElementIndex
+    GetElementOfPoint (const netgen::Point<3> & p,
+                       double * lami,
+                       std::optional<FlatArray<int>> indices,
+                       bool build_searchtree = 0,
+                       bool allowindex = true,
+                       double tol=1e-4) const;
+    DLL_HEADER SurfaceElementIndex
+    GetSurfaceElementOfPoint (const netgen::Point<3> & p,
+                              double * lami,
+                              bool build_searchtree = false,
+                              int index = -1,
+                              bool allowindex = true) const;
+    DLL_HEADER SurfaceElementIndex
+    GetSurfaceElementOfPoint (const netgen::Point<3> & p,
+                              double * lami,
+                              std::optional<FlatArray<int>> indices,
+                              bool build_searchtree = false,
+                              bool allowindex = true) const;
 
     /// give list of vol elements which are int the box(p1,p2)
     void GetIntersectingVolEls(const Point3d& p1, const Point3d& p2, 
-			       NgArray<int> & locels) const;
+			       Array<ElementIndex> & locels) const;
 
     ///
     int AddFaceDescriptor(const FaceDescriptor& fd)
@@ -709,7 +739,7 @@ namespace netgen
     DLL_HEADER static string defaultmat;
     const string * GetMaterialPtr (int domnr) const // 1-based
     {
-      return domnr <= materials.Size() ? materials.Get(domnr) : &defaultmat;
+      return domnr <= materials.Size() ? materials[domnr-1] : &defaultmat;
     }
     
     DLL_HEADER void SetNBCNames ( int nbcn );
@@ -748,7 +778,24 @@ namespace netgen
     { return (bcnr < bcnames.Size() && bcnames[bcnr]) ? bcnames[bcnr] : &default_bc; }
 
 
-    DLL_HEADER NgArray<string*> & GetRegionNamesCD (int codim);
+    DLL_HEADER Array<string*> & GetRegionNamesCD (int codim);
+
+    DLL_HEADER std::string_view GetRegionName(const Segment & el) const;
+    DLL_HEADER std::string_view GetRegionName(const Element2d & el) const;
+    DLL_HEADER std::string_view GetRegionName(const Element & el) const;
+
+    std::string_view GetRegionName(SegmentIndex ei) const { return GetRegionName((*this)[ei]); }
+    std::string_view GetRegionName(SurfaceElementIndex ei) const { return GetRegionName((*this)[ei]); }
+    std::string_view GetRegionName(ElementIndex ei) const { return GetRegionName((*this)[ei]); }
+
+    DLL_HEADER static string_view defaultmat_sv;
+    std::string_view GetRegionName (int dim, int domnr) // 1-based domnr
+    {
+      domnr--;
+      auto & names = region_name_cd[dimension-dim];
+      if (domnr < names.Size() && names[domnr]) return *names[domnr];
+      return defaultmat_sv;
+    }
     
     ///
     void ClearFaceDescriptors()
@@ -833,8 +880,10 @@ namespace netgen
 
   
 
-    DLL_HEADER Table<ElementIndex, PointIndex> CreatePoint2ElementTable(std::optional<BitArray> points = std::nullopt, int domain = 0) const;
+    DLL_HEADER Table<ElementIndex, PointIndex> CreatePoint2ElementTable(std::optional<TBitArray<PointIndex>> points = std::nullopt, int domain = 0) const;
+    // DLL_HEADER Table<SurfaceElementIndex, PointIndex> CreatePoint2SurfaceElementTable( int faceindex=0 ) const;
     DLL_HEADER Table<SurfaceElementIndex, PointIndex> CreatePoint2SurfaceElementTable( int faceindex=0 ) const;
+    DLL_HEADER CompressedTable<SurfaceElementIndex, PointIndex> CreateCompressedPoint2SurfaceElementTable( int faceindex=0 ) const;
 
     DLL_HEADER bool PureTrigMesh (int faceindex = 0) const;
     DLL_HEADER bool PureTetMesh () const;
@@ -945,7 +994,7 @@ namespace netgen
     /// distributes the master-mesh to local meshes
     DLL_HEADER void Distribute ();
     DLL_HEADER void Distribute (NgArray<int> & volume_weights, NgArray<int> & surface_weights,
-		     NgArray<int> & segment_weights);
+                                NgArray<int> & segment_weights);
 
 
     /// find connection to parallel meshes
@@ -955,20 +1004,19 @@ namespace netgen
     //   void FindExchangeFaces ();
 
     /// use metis to decompose master mesh 
-    DLL_HEADER void ParallelMetis (int nproc); //  NgArray<int> & neloc );
+    DLL_HEADER void ParallelMetis (int nproc); 
     DLL_HEADER void ParallelMetis (NgArray<int> & volume_weights, NgArray<int> & surface_weights,
-			NgArray<int> & segment_weights); 
+                                   NgArray<int> & segment_weights); 
 
-    void PartHybridMesh (); //  NgArray<int> & neloc );
-    void PartDualHybridMesh (); //  NgArray<int> & neloc );
-    void PartDualHybridMesh2D ();  // ( NgArray<int> & neloc );
-
+    void PartHybridMesh (); 
+    void PartDualHybridMesh (); 
+    void PartDualHybridMesh2D ();
 
     /// send mesh from master to local procs
     void SendRecvMesh ();
 
     /// send mesh to parallel machine, keep global mesh at master 
-    void SendMesh ( ) const;   // Mesh * mastermesh, NgArray<int> & neloc) const;
+    void SendMesh ( ) const;   
     /// loads a mesh sent from master processor
     void ReceiveParallelMesh ();
 
@@ -981,7 +1029,7 @@ namespace netgen
       NgArray<int> & segment_weights){ }
 #endif
 
-    NgArray<int> vol_partition;
+    Array<int, ElementIndex> vol_partition;
     NgArray<int> surf_partition;
     NgArray<int> seg_partition;
 
@@ -1022,7 +1070,7 @@ namespace netgen
     return FlatArray<T_FACE>(GetNFaces ( (*mesh)[elnr].GetType()), &faces[elnr][0]);
   }
 
-  
+  DLL_HEADER void AddFacesBetweenDomains(Mesh & mesh);
 }
 
 #endif // NETGEN_MESHCLASS_HPP

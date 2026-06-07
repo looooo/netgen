@@ -300,7 +300,7 @@ namespace netgen
               }
         for(const auto& vert : geom.GetFaceVertices(geom.GetFace(k-1)))
           {
-            PointIndex pi = vert->nr + 1;
+            PointIndex pi = vert->nr + IndexBASE<PointIndex>();
             if(glob2loc[pi] == 0)
               {
                 auto gi = occface.Project(mesh[pi]);
@@ -398,7 +398,7 @@ namespace netgen
         }
         for(const auto& vert : geom.GetFaceVertices(geom.GetFace(k-1)))
           {
-            PointIndex pi = vert->nr + 1;
+            PointIndex pi = vert->nr + IndexBASE<PointIndex>();
             if(glob2loc[pi] == 0)
               {
                 auto gi = occface.Project(mesh[pi]);
@@ -484,7 +484,6 @@ namespace netgen
     maxhdom = mparam.maxh;
     int maxlayer = 1;
 
-    int dom = 0;
     for(auto dom : Range(geom.GetNSolids()))
     {
       auto & props = geom.GetSolid(dom).properties;

@@ -8,6 +8,7 @@
 /**************************************************************************/
 
 #include <cstring>
+#include <array>
 #include <type_traits>
 
 #include "exception.hpp"
@@ -216,6 +217,10 @@ namespace ngcore
   template <typename  T>
   constexpr T IndexBASE () { return T(0); }
 
+  template <typename  T>
+  constexpr T IndexBASE (T ind) { return IndexBASE<T>(); }
+
+  
 
   class IndexFromEnd
   {
@@ -278,7 +283,8 @@ namespace ngcore
     T first, next;
   public: 
     NETGEN_INLINE T_Range () { ; }
-    NETGEN_INLINE T_Range (T n) : first(0), next(n) {;}
+    // NETGEN_INLINE T_Range (T n) : first(0), next(n) {;}
+    NETGEN_INLINE explicit T_Range (size_t n) : first(IndexBASE<T>()), next(IndexBASE<T>()+n) {;}    
     NETGEN_INLINE T_Range (T f, T n) : first(f), next(n) {;}
     template <typename T2>
       NETGEN_INLINE T_Range(T_Range<T2> r2) : first(r2.First()), next(r2.Next()) { ; }
@@ -296,7 +302,7 @@ namespace ngcore
 
     NETGEN_INLINE T_Range Split (size_t nr, int tot) const
     {
-      T diff = next-first;
+      auto diff = next-first;
       return T_Range (first + nr * diff / tot,
                       first + (nr+1) * diff / tot);
     }
@@ -341,7 +347,7 @@ namespace ngcore
 
    */
   template <typename T>
-  auto Range(const T & x)
+  NETGEN_INLINE auto Range(const T & x)
     -> typename std::enable_if<std::is_integral_v<T> || !has_range<T>,
                                decltype(Range_impl(x, std::is_integral<T>()))>::type {
     return Range_impl(x, std::is_integral<T>());
@@ -449,11 +455,11 @@ namespace ngcore
     using BaseArrayObject<FlatArray>::ILLEGAL_POSITION;
 
     /// initialize array 
-    NETGEN_INLINE FlatArray () = default;
+    FlatArray () = default;
     // { ; } // size = 0; data = 0; }
 
     /// copy constructor allows size-type conversion 
-    NETGEN_INLINE FlatArray (const FlatArray & a2) = default;
+    FlatArray (const FlatArray & a2) = default;
     // : size(a2.Size()), data(a2.data) { ; } 
 
     /// provide size and memory
@@ -469,6 +475,10 @@ namespace ngcore
       : size(asize), data (lh.Alloc<T> (asize))
     { ; }
 
+    template <size_t N>
+    NETGEN_INLINE FlatArray(std::array<T,N> & a)
+      : size(N), data(&a[0]) { }
+    
     /// the size
     NETGEN_INLINE size_t Size() const { return size; }
 
@@ -553,6 +563,13 @@ namespace ngcore
     // const CArray<T> operator+ (int pos)
     // { return CArray<T> (data+pos); }
     NETGEN_INLINE T * operator+ (size_t pos) const { return data+pos; }
+
+    /// access first element. check by macro NETGEN_CHECK_RANGE
+    T & First () const
+    {
+      NETGEN_CHECK_RANGE(0,0,size);
+      return data[0];
+    }
 
     /// access last element. check by macro NETGEN_CHECK_RANGE
     T & Last () const
@@ -687,6 +704,7 @@ namespace ngcore
     size_t allocsize;
     /// that's the data we have to delete, nullptr for not owning the memory
     T * mem_to_delete;
+    MemoryTracer mt;
 
 
     using FlatArray<T,IndexType>::size;
@@ -708,6 +726,7 @@ namespace ngcore
     {
       allocsize = asize; 
       mem_to_delete = data;
+      mt.Alloc(sizeof(T)*asize);
     }
 
 
@@ -717,7 +736,10 @@ namespace ngcore
     {
       allocsize = asize;
       if(ownMemory)
+      {
         mem_to_delete = adata;
+        mt.Alloc(sizeof(T)*asize);
+      }
       else
         mem_to_delete = nullptr;
     }
@@ -733,8 +755,7 @@ namespace ngcore
 
     NETGEN_INLINE Array (Array && a2) 
     {
-      mt.Swap(0., a2.mt, sizeof(T) * a2.allocsize);
-
+      mt = std::move(a2.mt);
       size = a2.size; 
       data = a2.data;
       allocsize = a2.allocsize;
@@ -753,6 +774,7 @@ namespace ngcore
         {
           allocsize = size;
           mem_to_delete = data;
+          mt.Alloc(sizeof(T)*size);
           for (size_t i = 0; i < size; i++)
             data[i] = a2.data[i];
         }
@@ -772,6 +794,7 @@ namespace ngcore
     {
       allocsize = size;
       mem_to_delete = data;
+      mt.Alloc(sizeof(T)*size);
       /*
       for (size_t i = 0; i < size; i++)
         data[i] = a2[i];
@@ -788,6 +811,7 @@ namespace ngcore
     {
       allocsize = size;
       mem_to_delete = data;
+      mt.Alloc(sizeof(T)*size);
       size_t cnt = 0;
       for (auto val : list)
         data[cnt++] = val;
@@ -800,6 +824,7 @@ namespace ngcore
     {
       allocsize = size;
       mem_to_delete = data;
+      mt.Alloc(sizeof(T)*size);
       for(size_t i = 0; i <  a2.Size(); i++)
         data[i] = a2[i];
       for (size_t i = a2.Size(), j=0; i < size; i++,j++)
@@ -834,6 +859,9 @@ namespace ngcore
     NETGEN_INLINE void NothingToDelete () 
     { 
       mem_to_delete = nullptr;
+
+      // this memory is not managed by the Array anymore, so set the memory usage to 0
+      mt.Free(sizeof(T)*allocsize);
     }
 
     /// Change logical size. If necessary, do reallocation. Keeps contents.
@@ -947,7 +975,7 @@ namespace ngcore
 
 
     /// Delete element i. Move last element to position i.
-    NETGEN_INLINE void DeleteElement (size_t i)
+    NETGEN_INLINE void DeleteElement (IndexType i)
     {
       NETGEN_CHECK_RANGE(i,BASE,BASE+size);
       data[i-BASE] = std::move(data[size-1]);
@@ -956,14 +984,30 @@ namespace ngcore
 
 
     /// Delete element i. Move all remaining elements forward
-    NETGEN_INLINE void RemoveElement (size_t i)
+    NETGEN_INLINE void RemoveElement (IndexType i)
     {
       NETGEN_CHECK_RANGE(i, BASE, BASE+size);
-      for(size_t j = i; j < this->size-1; j++)
+      for(size_t j = i-BASE; j+1 < this->size; j++)
 	this->data[j] = this->data[j+1];
       this->size--;
     }
 
+    template <typename FUNC>
+    NETGEN_INLINE void RemoveElementIf (FUNC func)
+    {
+      ptrdiff_t move_forward = 0;
+      for (size_t j = 0; j < this->size; j++)
+        {
+          if (func(this->data[j]))
+            move_forward++;
+          else
+            {
+              if (move_forward > 0)
+                this->data[j-move_forward] = this->data[j];
+            }
+        }
+      this->size -= move_forward;
+    }
 
     /// Delete last element. 
     NETGEN_INLINE void DeleteLast ()
@@ -1011,8 +1055,7 @@ namespace ngcore
     /// steal array 
     NETGEN_INLINE Array & operator= (Array && a2)
     {
-      mt.Swap(sizeof(T)*allocsize, a2.mt, sizeof(T)*a2.allocsize);
-
+      mt = std::move(a2.mt);
       ngcore::Swap (size, a2.size);
       ngcore::Swap (data, a2.data);
       ngcore::Swap (allocsize, a2.allocsize);
@@ -1086,8 +1129,7 @@ namespace ngcore
     
     NETGEN_INLINE void Swap (Array & b)
     {
-      mt.Swap(sizeof(T) * allocsize, b.mt, sizeof(T) * b.allocsize);
-
+      mt = std::move(b.mt);
       ngcore::Swap (size, b.size);
       ngcore::Swap (data, b.data);
       ngcore::Swap (allocsize, b.allocsize);
@@ -1096,7 +1138,8 @@ namespace ngcore
 
     NETGEN_INLINE void StartMemoryTracing () const
     {
-      mt.Alloc(sizeof(T) * allocsize);
+      if(mem_to_delete)
+        mt.Alloc(sizeof(T) * allocsize);
     }
 
     const MemoryTracer& GetMemoryTracer() const { return mt; }
@@ -1105,7 +1148,6 @@ namespace ngcore
 
     /// resize array, at least to size minsize. copy contents
     NETGEN_INLINE void ReSize (size_t minsize);
-    MemoryTracer mt;
   };
 
   
@@ -1158,6 +1200,7 @@ namespace ngcore
     using Array<T>::allocsize;
     using Array<T>::data;
     using Array<T>::mem_to_delete;
+    using Array<T>::mt;
     // using Array<T>::ownmem;
 
   public:
@@ -1171,6 +1214,7 @@ namespace ngcore
           data = new T[asize];
           allocsize = size;
           mem_to_delete = data;
+          mt.Alloc(sizeof(T)*asize);
         }
     }
 
@@ -1191,6 +1235,7 @@ namespace ngcore
     ArrayMem(ArrayMem && a2)
       : Array<T> (a2.Size(), (T*)mem)
     {
+      mt = std::move(a2.mt);
       if (a2.mem_to_delete)
         {
           mem_to_delete = a2.mem_to_delete;
@@ -1233,6 +1278,7 @@ namespace ngcore
 
     ArrayMem & operator= (ArrayMem && a2)
     {
+      mt = std::move(a2.mt);
       ngcore::Swap (mem_to_delete, a2.mem_to_delete);
       ngcore::Swap (allocsize, a2.allocsize);
       ngcore::Swap (size, a2.size);
@@ -1412,8 +1458,24 @@ namespace ngcore
   template <class T, typename TLESS>
   void QuickSort (FlatArray<T> data, TLESS less)
   {
-    if (data.Size() <= 1) return;
+    constexpr size_t INSERTION_SORT_THRESHOLD = 16;
+    
+    if (data.Size() <= INSERTION_SORT_THRESHOLD) {
+      // insertion sort
+      for (ptrdiff_t k = 1; k < data.Size(); ++k)
+        {
+          auto newval = data[k];
+          ptrdiff_t l = k;
+          for ( ; l > 0 && less(newval, data[l-1]); --l)
+            data[l] = data[l-1];
+          data[l] = newval;
+        }
+      
+      return;
+    }
 
+    // if (data.Size() <= 1) return;
+    
     ptrdiff_t i = 0;
     ptrdiff_t j = data.Size()-1;
 

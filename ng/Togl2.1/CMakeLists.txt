@@ -11,7 +11,8 @@ else(WIN32)
 endif(WIN32)
 
 add_library(togl ${TOGL_LIBRARY_TYPE} togl.c toglProcAddr.c toglStubInit.c)
-target_link_libraries( togl PUBLIC $<BUILD_INTERFACE:netgen_gui>)
+# PRIVATE so netgen_gui include paths (e.g. from .pixi env) are not in togl INTERFACE (avoids "prefixed in source directory" in CMake 4)
+target_link_libraries( togl PRIVATE $<BUILD_INTERFACE:netgen_gui>)
 
 target_compile_definitions(togl PRIVATE -DBUILD_togl=1 -DSTDC_HEADERS=1)
 
@@ -30,7 +31,8 @@ else(WIN32)
 
 endif(WIN32)
 
-target_include_directories(togl PUBLIC ${OPENGL_INCLUDE_DIR})
+# BUILD_INTERFACE so paths under source tree (e.g. .pixi env) are not rejected by CMake 4
+target_include_directories(togl PUBLIC $<BUILD_INTERFACE:${OPENGL_INCLUDE_DIR}>)
 target_link_libraries(togl PUBLIC ${OPENGL_LIBRARY})
 set_target_properties(togl PROPERTIES POSITION_INDEPENDENT_CODE ON )
 install(TARGETS togl DESTINATION ${NG_INSTALL_DIR} COMPONENT netgen)

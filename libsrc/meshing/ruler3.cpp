@@ -8,38 +8,55 @@ extern double minother;
 extern double minwithoutother;
 
 
-  static double CalcElementBadness (const NgArray<Point3d, PointIndex::BASE> & points,
+  static double TetBadnessFromPoints (const Point3d & p1,
+                                      const Point3d & p2,
+                                      const Point3d & p3,
+                                      const Point3d & p4)
+  {
+    Vec3d v1 = p2 - p1;
+    Vec3d v2 = p3 - p1;
+    Vec3d v3 = p4 - p1;
+
+    double vol = -(Cross(v1, v2) * v3);
+    if (vol < 1e-8) return 1e10;
+
+    double l4 = Dist(p2, p3);
+    double l5 = Dist(p2, p4);
+    double l6 = Dist(p3, p4);
+    double l  = v1.Length() + v2.Length() + v3.Length() + l4 + l5 + l6;
+
+    return pow(l*l*l/vol, 1.0/3.0) / 12.0;
+  }
+
+  static double CalcElementBadness (const Array<Point3d, PointIndex> & points,
                                     const Element & elem)
 {
   double vol, l, l4, l5, l6;
-  if (elem.GetNP() != 4) 
+  if(elem.GetNP() == 4)
+    return TetBadnessFromPoints (points[elem.PNum(1)],
+                                 points[elem.PNum(2)],
+                                 points[elem.PNum(3)],
+                                 points[elem.PNum(4)]);
+  if (elem.GetNP() == 5)
     {
-      if (elem.GetNP() == 5)
-	{
-	  double z = points[elem.PNum(5)].Z();
-	  if (z > -1e-8) return 1e8;
-	  return (-1 / z) - z; //  - 2;
-	}
-      return 0;
-    }
-  
-  Vec3d v1 = points[elem.PNum(2)] - points[elem.PNum(1)];
-  Vec3d v2 = points[elem.PNum(3)] - points[elem.PNum(1)];
-  Vec3d v3 = points[elem.PNum(4)] - points[elem.PNum(1)];
-  
-  vol = - (Cross (v1, v2) * v3);
-  l4 = Dist (points[elem.PNum(2)], points[elem.PNum(3)]);
-  l5 = Dist (points[elem.PNum(2)], points[elem.PNum(4)]);
-  l6 = Dist (points[elem.PNum(3)], points[elem.PNum(4)]);
+      auto p1 = points[elem.PNum(1)];
+      auto p2 = points[elem.PNum(2)];
+      auto p3 = points[elem.PNum(3)];
+      auto p4 = points[elem.PNum(4)];
+      auto p5 = points[elem.PNum(5)];
+      double a1 = TetBadnessFromPoints(p1,p2,p3,p5);
+      double a2 = TetBadnessFromPoints(p1,p3,p4,p5);
+      double splitA = std::max(a1,a2);
 
-  l = v1.Length() + v2.Length() + v3.Length() + l4 + l5 + l6;
-  
-  //  testout << "vol = " << vol << " l = " << l << endl;
-  if (vol < 1e-8) return 1e10;
-  //  (*testout) << "l^3/vol = " << (l*l*l / vol) << endl;
-  
-  double err = pow (l*l*l/vol, 1.0/3.0) / 12;
-  return err;
+      double b1 = TetBadnessFromPoints(p1,p2,p4,p5);
+      double b2 = TetBadnessFromPoints(p2,p3,p4,p5);
+      double splitB = std::max(b1,b2);
+
+      double best = std::min(splitA, splitB);
+
+      return best;
+    }
+  return 0.;
 }
 
 
@@ -49,9 +66,9 @@ extern double minwithoutother;
 
 int Meshing3 :: ApplyRules 
 (
- NgArray<Point3d, PointIndex::BASE> & lpoints,     // in: local points, out: old+new local points
- NgArray<int, PointIndex::BASE> & allowpoint,      // in: 2 .. it is allowed to use pointi, 1..will be allowed later, 0..no means
- NgArray<MiniElement2d> & lfaces,    // in: local faces, out: old+new local faces
+ Array<Point3d, PointIndex> & lpoints,     // in: local points, out: old+new local points
+ Array<int, PointIndex> & allowpoint,      // in: 2 .. it is allowed to use pointi, 1..will be allowed later, 0..no means
+ Array<MiniElement2d> & lfaces,    // in: local faces, out: old+new local faces
  INDEX lfacesplit,	       // for local faces in outer radius
  INDEX_2_HASHTABLE<int> & connectedpairs,  // connected pairs for prism-meshing
  NgArray<Element> & elements,    // out: new elements
@@ -226,16 +243,17 @@ int Meshing3 :: ApplyRules
   // check each rule:
   // tstart.Stop();
   // tloop.Start();
-  for (int ri = 1; ri <= rules.Size(); ri++)
+  for (int rim = 0; rim < rules.Size(); rim++)
     {
       int base = (lfaces[0].GetNP() == 3) ? 100 : 200;
       NgProfiler::RegionTimer regx1(base);
-      NgProfiler::RegionTimer regx(base+ri);
+      NgProfiler::RegionTimer regx(base+rim+1);
 
       // sprintf (problems.Elem(ri), "");
-      *problems.Elem(ri) = '\0';
+      // *problems.Elem(ri) = '\0';
+      problems[rim] = "";
 
-      vnetrule * rule = rules.Get(ri);
+      vnetrule * rule = rules[rim].get();
       
       if (rule->GetNP(1) != lfaces[0].GetNP())
 	continue;
@@ -245,17 +263,17 @@ int Meshing3 :: ApplyRules
 	  if (rule->GetQuality() < 100) impossible = 0;
 
 	  if (testmode)
-	    snprintf (problems.Elem(ri), 255, "Quality not ok");
+	    problems[rim] = "Quality not ok";
 	  continue;
 	}
       
       if (testmode)
-	snprintf (problems.Elem(ri), 255, "no mapping found");
+	problems[rim] = "no mapping found";
       
       loktestmode = testmode || rule->TestFlag ('t') || tolerance > 5;
 
       if (loktestmode)
-	(*testout) << "Rule " << ri << " = " << rule->Name() << endl;
+	(*testout) << "Rule " << rim+1 << " = " << rule->Name() << endl;
       
       pmap.SetSize (rule->GetNP());
       fmapi.SetSize (rule->GetNF());
@@ -287,7 +305,7 @@ int Meshing3 :: ApplyRules
 
       int nfok = 2;
       NgProfiler::RegionTimer regfa(300);
-      NgProfiler::RegionTimer regx2(base+50+ri);
+      NgProfiler::RegionTimer regx2(base+50+rim+1);
       while (nfok >= 2)
 	{
 	  
@@ -314,7 +332,7 @@ int Meshing3 :: ApplyRules
 		  
 		  if (fnearness.Get(locfi) > rule->GetFNearness (nfok) ||
 		      fused.Get(locfi) ||
-		      actfnp != lfaces.Get(locfi).GetNP() )
+		      actfnp != lfaces[locfi-1].GetNP() )
 		    {
 		      // face not feasible in any rotation
 
@@ -325,7 +343,7 @@ int Meshing3 :: ApplyRules
 		      
 		      ok = 1;
 		      
-		      locface = &lfaces.Get(locfi);
+		      locface = &lfaces[locfi-1];
 
 		      
 		      // reference point already mapped differently ?
@@ -376,7 +394,7 @@ int Meshing3 :: ApplyRules
 		    {
 		      PointIndex locpi = locface->PNumMod(j+locfr);
 		      
-		      if (rule->GetPointNr (nfok, j) <= 3 &&
+		      if (rule->GetPointNr (nfok, j) < IndexBASE<PointIndex>()+3 &&
 			  pmap.Get(rule->GetPointNr(nfok, j)) != locpi)
 			(*testout) << "change face1 point, mark1" << endl;
 		      
@@ -419,7 +437,7 @@ int Meshing3 :: ApplyRules
 	      if (loktestmode)
 		{
 		  (*testout) << "Faces Ok" << endl;
-		  snprintf (problems.Elem(ri), 255, "Faces Ok");
+		  problems[rim] = "Faces Ok";
 		}
 
 	      int npok = 1;
@@ -457,7 +475,7 @@ int Meshing3 :: ApplyRules
 			  if (locpi.IsValid())
 			    pused[locpi]--;
 			  
-			  while (!ok && locpi < lpoints.Size()-1+PointIndex::BASE)
+			  while (!ok && locpi < lpoints.Size()-1+IndexBASE<PointIndex>())
 			    {
 			      ok = 1;
 			      locpi++;
@@ -527,8 +545,8 @@ int Meshing3 :: ApplyRules
 			  for (auto pi : pmap)
 			    (*testout) << pi << " ";
 			  (*testout) << endl;
-			  snprintf (problems.Elem(ri), 255, "mapping found");
-			  (*testout) << rule->GetNP(1) << " = " << lfaces.Get(1).GetNP() << endl;
+			  problems[rim] = "mapping found";
+			  (*testout) << rule->GetNP(1) << " = " << lfaces[0].GetNP() << endl;
 			}
 		      
 		      ok = 1;
@@ -594,10 +612,7 @@ int Meshing3 :: ApplyRules
 		      
 
 		      if (ok)
-			{
-			  foundmap.Elem(ri)++;
-			}
-
+                        foundmap[rim]++;
 		      
 
 
@@ -642,7 +657,7 @@ int Meshing3 :: ApplyRules
 		      if (!rule->ConvexFreeZone())
 			{
 			  ok = 0;
-			  snprintf (problems.Elem(ri), 255, "Freezone not convex");
+			  problems[rim] = "Freezone not convex";
 
 			  if (loktestmode)
 			    (*testout) << "Freezone not convex" << endl;
@@ -659,11 +674,12 @@ int Meshing3 :: ApplyRules
 
 		      // check freezone:
 		      
-		      for (int i = 1; i <= lpoints.Size(); i++)
+		      // for (int i = 1; i <= lpoints.Size(); i++)
+                      for (auto i : lpoints.Range())
 			{
-			  if ( !pused.Get(i) )
+			  if ( !pused[i] )
 			    {
-			      const Point3d & lp = lpoints.Get(i);
+			      const Point3d & lp = lpoints[i];
 
 			      if (rule->fzbox.IsIn (lp))
 				{
@@ -673,8 +689,7 @@ int Meshing3 :: ApplyRules
 					{
 					  (*testout) << "Point " << i 
 						     << " in Freezone" << endl;
-					  snprintf (problems.Elem(ri), 255,
-						   "locpoint %d in Freezone", i);
+					  problems[rim] = "locpoint " + ToString(i) + " in Freezone";
 					}
 				      ok = 0;
 				      break;
@@ -690,7 +705,7 @@ int Meshing3 :: ApplyRules
 			  if (!fused.Get(i))
 			    { 
 			      int triin;
-			      const MiniElement2d & lfacei = lfaces.Get(i);
+			      const MiniElement2d & lfacei = lfaces[i-1];
 
 			      if (!triboxes.Elem(i).Intersect (rule->fzbox))
 				triin = 0;
@@ -743,19 +758,19 @@ int Meshing3 :: ApplyRules
 
 				  if (loktestmode)
 				    {
-				      (*testout) << "El with " << lfaces.Get(i).GetNP() << " points in freezone: "
-						 << lfaces.Get(i).PNum(1) << " - " 
-						 << lfaces.Get(i).PNum(2) << " - "
-						 << lfaces.Get(i).PNum(3) << " - "
-						 << lfaces.Get(i).PNum(4) << endl;
-				      for (int lj = 1; lj <= lfaces.Get(i).GetNP(); lj++)
-					(*testout) << lpoints[lfaces.Get(i).PNum(lj)] << " ";
+				      (*testout) << "El with " << lfaces[i-1].GetNP() << " points in freezone: "
+						 << lfaces[i-1].PNum(1) << " - " 
+						 << lfaces[i-1].PNum(2) << " - "
+						 << lfaces[i-1].PNum(3) << " - "
+						 << lfaces[i-1].PNum(4) << endl;
+				      for (int lj = 1; lj <= lfaces[i-1].GetNP(); lj++)
+					(*testout) << lpoints[lfaces[i-1].PNum(lj)] << " ";
 
 				      (*testout) << endl;
 
 				      sprintf (problems.Elem(ri), "triangle (%d, %d, %d) in Freezone",
-					       lfaces.Get(i).PNum(1), lfaces.Get(i).PNum(2),
-					       lfaces.Get(i).PNum(3));
+					       lfaces[i-1].PNum(1), lfaces[i-1].PNum(2),
+					       lfaces[i-1].PNum(3));
 				    }
 #else
 				  if (loktestmode)
@@ -787,23 +802,22 @@ int Meshing3 :: ApplyRules
 						     << lpoints[lfacei.PNum(4)] 
 						     << endl;
 
-				      snprintf (problems.Elem(ri), 255, "triangle (%d, %d, %d) in Freezone",
-					       int(lfaces.Get(i).PNum(1)), 
-					       int(lfaces.Get(i).PNum(2)),
-					       int(lfaces.Get(i).PNum(3)));
+				      problems[rim] = "triangle ("+ToString(lfaces[i-1].PNum(1))+", "
+                                        + ToString(lfaces[i-1].PNum(2)) + ", "
+                                        + ToString(lfaces[i-1].PNum(3)) + ") in Freezone";
 				    }	
 
 				  hc = 0;
 				  for (int k = rule->GetNOldF() + 1; k <= rule->GetNF(); k++)
 				    {
-				      if (rule->GetPointNr(k, 1) <= rule->GetNOldP() &&
-					  rule->GetPointNr(k, 2) <= rule->GetNOldP() &&
-					  rule->GetPointNr(k, 3) <= rule->GetNOldP())
+				      if (rule->GetPointNr(k, 1) < IndexBASE<PointIndex>()+rule->GetNOldP() &&
+					  rule->GetPointNr(k, 2) < IndexBASE<PointIndex>()+rule->GetNOldP() &&
+					  rule->GetPointNr(k, 3) < IndexBASE<PointIndex>()+rule->GetNOldP())
 					{
 					  for (int j = 1; j <= 3; j++)
-					    if (lfaces.Get(i).PNumMod(j  ) == pmap.Get(rule->GetPointNr(k, 1)) &&
-						lfaces.Get(i).PNumMod(j+1) == pmap.Get(rule->GetPointNr(k, 3)) &&
-						lfaces.Get(i).PNumMod(j+2) == pmap.Get(rule->GetPointNr(k, 2)))
+					    if (lfaces[i-1].PNumMod(j  ) == pmap.Get(rule->GetPointNr(k, 1)) &&
+						lfaces[i-1].PNumMod(j+1) == pmap.Get(rule->GetPointNr(k, 3)) &&
+						lfaces[i-1].PNumMod(j+2) == pmap.Get(rule->GetPointNr(k, 2)))
 					      {
 						fmapi.Elem(k) = i;
 						hc = 1;
@@ -816,7 +830,7 @@ int Meshing3 :: ApplyRules
 //  							   << " - " << pmap.Get (rule->GetPointNr(k, 3)) << " ) "
 //  							   << endl;
 
-						strcpy (problems.Elem(ri), "other");
+						problems[rim] = "other";
 					      }
 					}
 				    }
@@ -826,14 +840,21 @@ int Meshing3 :: ApplyRules
 				      if (loktestmode)
 					{
 					  (*testout) << "Triangle in freezone: "
-						     << lfaces.Get(i).PNum(1) << " - " 
-						     << lfaces.Get(i).PNum(2) << " - "
-						     << lfaces.Get(i).PNum(3) << endl;
+						     << lfaces[i-1].PNum(1) << " - " 
+						     << lfaces[i-1].PNum(2) << " - "
+						     << lfaces[i-1].PNum(3) << endl;
 
+                                          /*
 					  snprintf (problems.Elem(ri), 255, "triangle (%d, %d, %d) in Freezone",
-						   int (lfaces.Get(i).PNum(1)), 
-						   int (lfaces.Get(i).PNum(2)),
-						   int (lfaces.Get(i).PNum(3)));
+						   int (lfaces[i-1].PNum(1)), 
+						   int (lfaces[i-1].PNum(2)),
+						   int (lfaces[i-1].PNum(3)));
+                                          */
+                                          problems[rim] = "triangle ("
+                                            + ToString(lfaces[i-1].PNum(1))+", "
+                                            + ToString(lfaces[i-1].PNum(2)) + ", "
+                                            + ToString(lfaces[i-1].PNum(3)) + ") in Freezone";
+                                          
 					}
 				      ok = 0;
 				    }
@@ -857,7 +878,7 @@ int Meshing3 :: ApplyRules
 			  if (loktestmode)
 			    {
 			      (*testout) << "Rule ok" << endl;
-			      snprintf (problems.Elem(ri), 255, "Rule ok, err = %f", err);
+			      problems[rim] = "Rule ok, err = "+ToString(err);
 			    }
 
 
@@ -922,7 +943,7 @@ int Meshing3 :: ApplyRules
 				{
 				  if (loktestmode)
 				    {
-				      snprintf (problems.Elem(ri), 255, "Orientation wrong");
+				      problems[rim] = "Orientation wrong";
 				      (*testout) << "Orientation wrong ("<< n*v3 << ")" << endl;
 				    }
 				  ok = 0;
@@ -933,13 +954,13 @@ int Meshing3 :: ApplyRules
 
 			  // new points in free-zone ?
 			  for (int i = rule->GetNOldP() + 1; i <= rule->GetNP() && ok; i++)
-			    if (!rule->IsInFreeZone (lpoints.Get(pmap.Get(i))))
+			    if (!rule->IsInFreeZone (lpoints[pmap.Get(i)]))
 			      {
 				if (loktestmode)
 				  {
-				    (*testout) << "Newpoint " << lpoints.Get(pmap.Get(i))
+				    (*testout) << "Newpoint " << lpoints[pmap.Get(i)]
 					       << " outside convex hull" << endl;
-				    snprintf (problems.Elem(ri), 255, "newpoint outside convex hull");
+				    problems[rim] = "newpoint outside convex hull";
 				  }
 				ok = 0;
 				
@@ -958,9 +979,9 @@ int Meshing3 :: ApplyRules
 			  // Calculate Element badness
 			  
 			  teterr = 0;
-			  for (int i = 1; i <= elements.Size(); i++)
+			  for (auto i : elements.Range())
 			    {
-			      double hf = CalcElementBadness (lpoints, elements.Get(i));
+			      double hf = CalcElementBadness (lpoints, elements[i]);
 			      if (hf > teterr) teterr = hf;
 			    }
 
@@ -1014,7 +1035,7 @@ int Meshing3 :: ApplyRules
 				{
 				  ok = 0;
 				  if (loktestmode)
-				    snprintf (problems.Elem(ri), 255, "oldlen < newlen");
+				    problems[rim] = "oldlen < newlen";
 				}
 			    }
 			  
@@ -1027,7 +1048,7 @@ int Meshing3 :: ApplyRules
 
 			  if (ok && teterr < tolerance)
 			    {
-			      canuse.Elem(ri) ++;
+			      canuse[rim] ++;
 			      /*
 			      (*testout) << "can use rule " << rule->Name() 
 					 << ", err = " << teterr << endl;
@@ -1036,7 +1057,7 @@ int Meshing3 :: ApplyRules
 			      (*testout) << endl;
 			      */
 
-			      if (strcmp (problems.Elem(ri), "other") == 0)
+			      if (problems[rim] == "other")
 				{
 				  if (teterr < minother)
 				    minother = teterr;
@@ -1057,7 +1078,7 @@ int Meshing3 :: ApplyRules
 			      if (loktestmode)
 				(*testout) << "use rule" << endl;
 
-			      found = ri;
+			      found = rim+1;
 			      minteterr = teterr;
 			      
 			      if (testmode)
@@ -1066,25 +1087,29 @@ int Meshing3 :: ApplyRules
 				    {
 				      (*testout) << "P" << i << ": Ref: "
 						 << rule->GetPoint (i) << "  is: "
-						 << lpoints.Get(pmap.Get(i)) << endl;
+						 << lpoints[pmap.Get(i)] << endl;
 				    }
 				}
 			      
 			      tempnewpoints.SetSize (0);
-			      for (int i = noldlp+1; i <= lpoints.Size(); i++)
-				tempnewpoints.Append (lpoints.Get(i));
+			      // for (int i = noldlp+1; i <= lpoints.Size(); i++)
+                              for (auto i : lpoints.Range().Modify(noldlp, 0))
+				tempnewpoints.Append (lpoints[i]);
 			      
 			      tempnewfaces.SetSize (0);
-			      for (int i = noldlf+1; i <= lfaces.Size(); i++)
-				tempnewfaces.Append (lfaces.Get(i));
+			      // for (int i = noldlf+1; i <= lfaces.Size(); i++)
+                              for (auto i : lfaces.Range().Modify(noldlf,0))
+				tempnewfaces.Append (lfaces[i]);
 
 			      tempdelfaces.SetSize (0);
-			      for (int i = 1; i <= delfaces.Size(); i++)
-				tempdelfaces.Append (delfaces.Get(i));
+			      // for (int i = 1; i <= delfaces.Size(); i++)
+                              for (auto i : delfaces.Range())
+				tempdelfaces.Append (delfaces[i]);
 			      
 			      tempelements.SetSize (0);
-			      for (int i = 1; i <= elements.Size(); i++)
-				tempelements.Append (elements.Get(i));
+			      // for (int i = 1; i <= elements.Size(); i++)
+                              for (auto i : elements.Range())
+				tempelements.Append (elements[i]);
 			    }
 			  
 

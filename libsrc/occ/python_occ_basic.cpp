@@ -132,6 +132,16 @@ DLL_HEADER void ExportNgOCCBasic(py::module &m)
         str << "(" << p.X() << ", " << p.Y() << ", " << p.Z() << ")";
         return str.str();
       })
+    .def("__getitem__", [](const gp_Dir& d, int index)
+    {
+      if(index == 0)
+        return d.X();
+      if(index == 1)
+        return d.Y();
+      if(index == 2)
+        return d.Z();
+      throw std::out_of_range("Direction index must be in range [0,3)!");
+    })
     ;
 
 
@@ -167,12 +177,9 @@ DLL_HEADER void ExportNgOCCBasic(py::module &m)
 
 
   py::class_<gp_Pnt2d>(m, "gp_Pnt2d", "2d OCC point")
-    .def(py::init([] (py::tuple pnt)
+    .def(py::init([] (std::tuple<double,double> pnt)
                   {
-                    if (py::len(pnt) != 2)
-                      throw Exception("need 2-tuple to create gp_Pnt2d");
-                    return gp_Pnt2d(py::cast<double>(pnt[0]),
-                                    py::cast<double>(pnt[1]));
+                    return gp_Pnt2d(get<0>(pnt), get<1>(pnt));
                   }))
     .def(py::init([] (double x, double y) {
           return gp_Pnt2d(x, y);

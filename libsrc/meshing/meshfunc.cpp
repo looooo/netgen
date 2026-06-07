@@ -3,6 +3,7 @@
 #include <mystdlib.h>
 #include "meshing.hpp"
 #include "debugging.hpp"
+#include "boundarylayer.hpp"
 
 namespace netgen
 {
@@ -58,6 +59,11 @@ namespace netgen
       auto num_points = mesh.GetNP();
       auto num_facedescriptors = mesh.GetNFD();
 
+
+      constexpr PointIndex state0 = IndexBASE<PointIndex>()-1; 
+      constexpr PointIndex state1 = state0+1;
+      constexpr PointIndex state2 = state0+2;
+      
       for(auto i : Range(ret))
       {
           auto & md = ret[i];
@@ -72,13 +78,23 @@ namespace netgen
           m.SetLocalH(mesh.GetLocalH());
 
           ipmap[i].SetSize(num_points);
-          ipmap[i] = PointIndex::INVALID;
+          ipmap[i] = state0;   // 0; // PointIndex::INVALID;
           m.SetDimension( mesh.GetDimension() );
           m.SetGeometry( mesh.GetGeometry() );
 
           for(auto i : Range(1, num_facedescriptors+1))
               m.AddFaceDescriptor( mesh.GetFaceDescriptor(i) );
       }
+
+      // mark interior edge points
+      for(const auto& seg : mesh.LineSegments())
+        {
+          if(seg.domin > 0 && seg.domin == seg.domout)
+            {
+              ipmap[seg.domin-1][seg[0]] = state1; // 1;
+              ipmap[seg.domin-1][seg[1]] = state1; // 1;
+            }
+        }
 
       // mark used points for each domain, add surface elements (with wrong point numbers) to domain mesh
       for(const auto & sel : mesh.SurfaceElements())
@@ -89,12 +105,12 @@ namespace netgen
 
         for( auto dom : {dom_in, dom_out} )
         {
-            if(dom==0)
+            if(dom<=0)
               continue;
 
             auto & sels = ret[dom-1].mesh->SurfaceElements();
             for(auto pi : sel.PNums())
-                ipmap[dom-1][pi] = 1;
+              ipmap[dom-1][pi] = state1;  // 1;
             sels.Append(sel);
         }
       }
@@ -103,17 +119,17 @@ namespace netgen
       for(const auto & el : mesh.VolumeElements())
       {
         auto dom = el.GetIndex();
-
+        
         auto & els = ret[dom-1].mesh->VolumeElements();
         for(auto pi : el.PNums())
-            ipmap[dom-1][pi] = 1;
+          ipmap[dom-1][pi] = state1; // 1;
         els.Append(el);
       }
 
       // mark locked/fixed points for each domain TODO: domain bounding box to add only relevant points?
       for(auto pi : mesh.LockedPoints())
         for(auto i : Range(ret))
-          ipmap[i][pi] = 2;
+          ipmap[i][pi] = state2; // 2;
 
       // add used points to domain mesh, build point mapping
       for(auto i : Range(ret))
@@ -122,11 +138,11 @@ namespace netgen
           auto & pmap = ret[i].pmap;
 
           for(auto pi : Range(ipmap[i]))
-            if(ipmap[i][pi])
+            if(ipmap[i][pi] != state0)
             {
               const auto& mp = mesh[pi];
               auto pi_new = m.AddPoint( mp, mp.GetLayer(), mp.Type() );
-              if(ipmap[i][pi] == 2)
+              if(ipmap[i][pi] == state2) // 2)
                 mesh.AddLockedPoint(pi_new);
               ipmap[i][pi] = pi_new;
               pmap.Append( pi );
@@ -200,8 +216,8 @@ namespace netgen
       if(!have_closesurfaces)
           return;
 
-      NgArray<int, PointIndex::BASE> map;
-      std::set<std::tuple<int,int,int>> hex_faces;
+      idmap_type map;
+      std::set<std::tuple<PointIndex,PointIndex,PointIndex>> hex_faces;
       for(auto identnr : Range(1,nmax+1))
       {
           if(identifications.GetType(identnr) != Identifications::CLOSESURFACES)
@@ -232,7 +248,7 @@ namespace netgen
               // insert prism/hex
               auto np = sel.GetNP();
               Element el(2*np);
-              std::set<int> pis;
+              std::set<PointIndex> pis;
               for(auto i : Range(np))
               {
                   el[i] = sel[i];
@@ -346,7 +362,8 @@ namespace netgen
            
            meshing.GenerateMesh (mesh, mpquad);
            
-           for (int i = oldne + 1; i <= mesh.GetNE(); i++)
+           // for (int i = oldne + 1; i <= mesh.GetNE(); i++)
+           for (ElementIndex i : mesh.VolumeElements().Range().Modify(oldne, 0))
              mesh.VolumeElement(i).SetIndex (domain);
            
            (*testout) 
@@ -362,6 +379,7 @@ namespace netgen
       if(debugparam.write_mesh_on_error) {
         md.mesh->Save("open_quads_starting_mesh_"+ToString(md.domain)+".vol.gz");
         GetOpenElements(*md.mesh, md.domain)->Save("open_quads_rest_" + ToString(md.domain)+".vol.gz");
+        GetOpenElements(*md.mesh, md.domain, true)->Save("open_quads_rest_" + ToString(md.domain)+"_only_quads.vol.gz");
       }
       PrintSysError ("mesh has still open quads");
       throw NgException ("Stop meshing since too many attempts");
@@ -386,34 +404,35 @@ namespace netgen
     for (int i = 1; i <= mesh.GetNOpenElements(); i++)
        md.meshing->AddBoundaryElement (mesh.OpenElement(i));
 
-   if (mp.delaunay && mesh.GetNOpenElements())
-   {
+    if (mp.delaunay && mesh.GetNOpenElements())
+    {
       int oldne = mesh.GetNE();
 
       md.meshing->Delaunay (mesh, domain, mp);
 
-      for (int i = oldne + 1; i <= mesh.GetNE(); i++)
+      // for (int i = oldne + 1; i <= mesh.GetNE(); i++)
+      for (ElementIndex i : mesh.VolumeElements().Range().Modify(oldne, 0))
          mesh.VolumeElement(i).SetIndex (domain);
 
       PrintMessage (3, mesh.GetNP(), " points, ",
          mesh.GetNE(), " elements");
       mesh.FindOpenElements(domain);
-   }
+    }
 
-   Box<3> domain_bbox( Box<3>::EMPTY_BOX ); 
+    Box<3> domain_bbox( Box<3>::EMPTY_BOX ); 
    
-   for (auto & sel : mesh.SurfaceElements())
+    for (auto & sel : mesh.SurfaceElements())
      {
        if (sel.IsDeleted() ) continue;
 
        for (auto pi : sel.PNums())
          domain_bbox.Add (mesh[pi]);
      }
-   domain_bbox.Increase (0.01 * domain_bbox.Diam());
+    domain_bbox.Increase (0.01 * domain_bbox.Diam());
 
-   int cntsteps = 0;
-   int meshed;
-   if (mesh.GetNOpenElements())
+    int cntsteps = 0;
+    int meshed;
+    if (mesh.GetNOpenElements())
      do
        {
          if (multithread.terminate)
@@ -421,7 +440,7 @@ namespace netgen
          
          mesh.FindOpenElements(domain);
          PrintMessage (5, mesh.GetNOpenElements(), " open faces");
-         // GetOpenElements( mesh, domain )->Save("open_"+ToString(cntsteps)+".vol");
+         // GetOpenElements( mesh, domain )->Save("open_"+ToString(domain)+"_"+ToString(cntsteps)+".vol");
          cntsteps++;
 
 
@@ -445,14 +464,14 @@ namespace netgen
 
          for (PointIndex pi : mesh.Points().Range())
            if (domain_bbox.IsIn (mesh[pi]))
-               glob2loc[pi] = meshing.AddPoint (mesh[pi], pi);
+             glob2loc[pi] = meshing.AddPoint (mesh[pi], pi);
 
-         for (auto sel : mesh.OpenElements() )
-         {
-           for(auto & pi : sel.PNums())
+         for (auto sel : mesh.OpenElements())
+           {
+             for(auto & pi : sel.PNums())
                pi = glob2loc[pi];
-           meshing.AddBoundaryElement (sel);
-         }
+             meshing.AddBoundaryElement (sel);
+           }
 
          int oldne = mesh.GetNE();
 
@@ -460,8 +479,8 @@ namespace netgen
          mp.sloppy = 5;
          meshing.GenerateMesh (mesh, mp);
          
-         for (ElementIndex ei = oldne; ei < mesh.GetNE(); ei++)
-            mesh[ei].SetIndex (domain);
+         for (auto & el : mesh.VolumeElements().Range(oldne, END))
+           el.SetIndex (domain);
          
 
          mesh.CalcSurfacesOfNode();
@@ -505,23 +524,22 @@ namespace netgen
             PrintMessage (1, "Success !");
            }
        }
-     while (!meshed);
-   
-     {
-        PrintMessage (3, "Check subdomain ", domain, " / ", mesh.GetNDomains());
+    while (!meshed);
 
-        mesh.FindOpenElements(domain);
+    PrintMessage (3, "Check subdomain ", domain, " / ", mesh.GetNDomains());
 
-        bool res = (mesh.CheckConsistentBoundary() != 0);
-        if (res)
-        {
-           if(debugparam.write_mesh_on_error)
-              md.mesh->Save("inconsistent_surface_domain_"+ToString(md.domain)+".vol.gz");
-           PrintError ("Surface mesh not consistent");
-           throw NgException ("Stop meshing since surface mesh not consistent");
-        }
-     }
-     RemoveIllegalElements (mesh, domain);
+    mesh.FindOpenElements(domain);
+
+    bool res = (mesh.CheckConsistentBoundary() != 0);
+    if (res)
+    {
+      if(debugparam.write_mesh_on_error)
+        md.mesh->Save("inconsistent_surface_domain_"+ToString(md.domain)+".vol.gz");
+      PrintError ("Surface mesh not consistent");
+      throw NgException ("Stop meshing since surface mesh not consistent");
+    }
+    RemoveIllegalElements (mesh, domain);
+    ConformToFreeSegments (mesh, domain);
   }
 
   void MergeMeshes( Mesh & mesh, Array<MeshingData> & md )
@@ -539,14 +557,20 @@ namespace netgen
      }
 
      mesh.VolumeElements().DeleteAll();
-     mesh.GetIdentifications().GetIdentifiedPoints().DeleteData();
+
+     // Keep identifications in the mesh, except the ones containing inner points
+     // Inner points will be renumbered, the identifcations will not be valid anymore
+     // These inner identifications are inserted at boundary layers when
+     // 4 or more faces meet at a vertex -> insert pyramids to fill the gap
+     // But pyramids are only inserted if the quad edges are identified
+     mesh.GetIdentifications().DeleteInnerPointIdentifications();
 
      for(auto & m_ : md)
      {
          auto first_new_pi = m_.pmap.Range().Next();
          auto & m = *m_.mesh;
          Array<PointIndex, PointIndex> pmap(m.Points().Size());
-         for(auto pi : Range(PointIndex(PointIndex::BASE), first_new_pi))
+         for(auto pi : Range(IndexBASE<PointIndex>(), first_new_pi))
              pmap[pi] = m_.pmap[pi];
 
          for (auto pi : Range(first_new_pi, m.Points().Range().Next()))
@@ -560,6 +584,16 @@ namespace netgen
              el.SetIndex(m_.domain);
              mesh.AddVolumeElement(el);
          }
+         // for(const auto& [p1p2, dummy] : m.GetIdentifications().GetIdentifiedPoints())
+         // mesh.GetIdentifications().Add(pmap[p1p2[0]], pmap[p1p2[1]], p1p2[2]);
+         for(const auto& [p1p2, dummy] : m.GetIdentifications().GetIdentifiedPoints())         
+           mesh.GetIdentifications().Add( pmap[ get<0>(p1p2)[0] ], pmap[ get<0>(p1p2)[1]] , get<1>(p1p2) );
+         for(auto i : Range(m.GetIdentifications().GetMaxNr()))
+           {
+             mesh.GetIdentifications().SetType(i+1, m.GetIdentifications().GetType(i+1));
+             if(auto name = m.GetIdentifications().GetName(i+1); name != "")
+               mesh.GetIdentifications().SetName(i+1, name);
+           }
      }
   }
 
@@ -570,7 +604,7 @@ namespace netgen
      for(auto & m : meshes)
      {
          Array<PointIndex, PointIndex> pmap(m.Points().Size());
-         for(auto pi : Range(PointIndex(PointIndex::BASE), first_new_pi))
+         for(auto pi : Range(IndexBASE<PointIndex>(), first_new_pi))
              pmap[pi] = pi;
 
          for (auto pi : Range(first_new_pi, m.Points().Range().Next()))
@@ -592,11 +626,17 @@ namespace netgen
     static Timer t("MeshVolume"); RegionTimer reg(t);
 
      mesh3d.Compress();
-     for (auto bl : mp.boundary_layers)
-       GenerateBoundaryLayer(mesh3d, bl);
 
      if(mesh3d.GetNDomains()==0)
          return MESHING3_OK;
+
+     auto geo = mesh3d.GetGeometry();
+     for (auto i : Range(std::min(geo->GetNSolids(), (size_t)mesh3d.GetNDomains())))
+       if (auto name = geo->GetSolid(i).properties.name)
+         mesh3d.SetMaterial (i+1, *name);
+
+     for (auto bl : mp.boundary_layers)
+       GenerateBoundaryLayer(mesh3d, bl);
 
      if (!mesh3d.HasLocalHFunction())
          mesh3d.CalcLocalH(mp.grading);
@@ -607,18 +647,26 @@ namespace netgen
        {
      ParallelFor( md.Range(), [&](int i)
        {
-         if (mp.checkoverlappingboundary)
-           if (md[i].mesh->CheckOverlappingBoundary())
-           {
-             if(debugparam.write_mesh_on_error)
-               md[i].mesh->Save("overlapping_mesh_domain_"+ToString(md[i].domain)+".vol.gz");
-             throw NgException ("Stop meshing since boundary mesh is overlapping");
-           }
+         try {
+           if (mp.checkoverlappingboundary)
+             if (md[i].mesh->CheckOverlappingBoundary())
+             {
+               if(debugparam.write_mesh_on_error)
+                 md[i].mesh->Save("overlapping_mesh_domain_"+ToString(md[i].domain)+".vol.gz");
+               throw NgException ("Stop meshing since boundary mesh is overlapping");
+             }
 
-         if(md[i].mesh->GetGeometry()->GetGeomType() == Mesh::GEOM_OCC)
-            FillCloseSurface( md[i] );
-         CloseOpenQuads( md[i] );
-         MeshDomain(md[i]);
+           if(md[i].mesh->GetGeometry()->GetGeomType() == Mesh::GEOM_OCC)
+              FillCloseSurface( md[i] );
+           CloseOpenQuads( md[i] );
+           MeshDomain(md[i]);
+         }
+         catch (const Exception & e) {
+           if(debugparam.write_mesh_on_error)
+             md[i].mesh->Save("meshing_error_domain_"+ToString(md[i].domain)+".vol.gz");
+           cerr << "Meshing of domain " << i+1 << " failed with error: " << e.what() << endl;
+           throw e;
+         }
        }, md.Size());
        }
      catch(...)
@@ -726,6 +774,165 @@ namespace netgen
   }
 
 
+  void ConformToFreeSegments (Mesh & mesh, int domain)
+  {
+    auto geo = mesh.GetGeometry();
+    if(!geo) return;
+    auto n_solids = geo->GetNSolids();
+    if(n_solids < domain) return;
+    if(geo->GetSolid(domain-1).free_edges.Size() == 0)
+      return;
+
+    Array<SegmentIndex> free_segs;
+    for (auto segi : Range(mesh.LineSegments()))
+      if(mesh[segi].domin == domain && mesh[segi].domout == domain)
+        free_segs.Append(segi);
+
+    auto get_nonconforming = [&] (const auto & p2el) {
+      Array<SegmentIndex> nonconforming;
+
+      for (auto segi : free_segs) {
+        auto seg = mesh[segi];
+
+        auto has_p0 = p2el[seg[0]];
+        bool has_both = false;
+
+        for(auto ei : has_p0) {
+          if(mesh[ei].PNums().Contains(seg[1]))
+            has_both = true;
+        }
+
+        if(!has_both)
+          nonconforming.Append(segi);
+      }
+      return nonconforming;
+    };
+
+    auto split_segment = [&] (SegmentIndex segi, const auto & p2el) {
+      auto seg = mesh[segi];
+      auto p_new = Center(mesh[seg[0]], mesh[seg[1]]);
+      double lam[3];
+      ElementIndex ei_start = mesh.GetElementOfPoint(p_new, lam, false, domain);
+
+      if(!ei_start.IsValid()) {
+        PrintMessage(1, "Could not find volume element with new point");
+        return;
+      }
+
+      if(mesh[ei_start].IsDeleted())
+        return;
+
+      double max_inside = -1.;
+      ElementIndex ei_max_inside = ElementIndex::INVALID;
+
+      // search for adjacent volume element, where the new point is "most inside",
+      // i.e. the minimal barycentric coordinate is maximal
+      for(auto pi : mesh[ei_start].PNums()) {
+        for(auto ei1 : p2el[pi]) {
+          double lam[3];
+
+          if(mesh[ei1].IsDeleted())
+            return;
+          if(!mesh.PointContainedIn3DElement(p_new, lam, ei1))
+            continue;
+
+          double inside = min(min(lam[0], lam[1]), min(lam[2], 1.0-lam[0]-lam[1]));
+          if(inside > max_inside) {
+            max_inside = inside;
+            ei_max_inside = ei1;
+          }
+        }
+      }
+
+      if(max_inside < 1e-4) {
+        PrintMessage(3, "Could not find volume element with new point inside");
+        return;
+      }
+
+      // split tet into 4 new tests, with new point inside
+      auto el = mesh[ei_max_inside];
+      if(el.GetNP() != 4) {
+        PrintMessage(3, "Only tet elements are supported to split around free segments");
+        return;
+      }
+
+      if(el.IsDeleted()) {
+        PrintMessage(3,"Element to split is already deleted");
+        return;
+      }
+
+      auto pi_new = mesh.AddPoint(p_new);
+      auto seg_new0 = seg;
+      auto seg_new1 = seg;
+      seg_new0[1] = pi_new;
+      seg_new1[0] = pi_new;
+
+      mesh[segi][0] = PointIndex::INVALID;
+      mesh.AddSegment(seg_new0);
+      mesh.AddSegment(seg_new1);
+
+
+      int pmap[4][4] = {
+        {0,1,2,4},
+        {1,3,2,4},
+        {0,2,3,4},
+        {0,3,1,4}
+      };
+
+      PointIndex pis[5] = {el[0], el[1], el[2], el[3], pi_new};
+
+      for (auto i : Range(4)) {
+        Element el_new;
+        el_new = el;
+        for (auto j : Range(4))
+          el_new[j] = pis[pmap[i][j]];
+        mesh.AddVolumeElement(el_new);
+      }
+      mesh[ei_max_inside].Delete();
+    };
+
+    size_t last_num_bad_segs = -1;
+    for ([[maybe_unused]] auto i : Range(10)) {
+      auto p2el = mesh.CreatePoint2ElementTable();
+
+      auto bad_segs = get_nonconforming(p2el);
+      auto num_bad_segs = bad_segs.Size();
+
+      if(num_bad_segs == 0)
+        return;
+
+      PrintMessage(3, "Non-conforming free segments in domain ", domain, ": ", num_bad_segs);
+
+      if(i>=5 || num_bad_segs != last_num_bad_segs) {
+        for(auto i : bad_segs)
+          split_segment(i, p2el);
+        mesh.Compress();
+      }
+
+      MeshingParameters dummymp;
+      MeshOptimize3d optmesh(mesh, dummymp, OPT_CONFORM);
+
+      for ([[maybe_unused]] auto i : Range(3)) {
+        optmesh.ImproveMesh();
+        optmesh.SwapImprove2(true);
+        optmesh.ImproveMesh();
+        optmesh.SwapImprove();
+        optmesh.ImproveMesh();
+        optmesh.CombineImprove();
+      }
+      last_num_bad_segs = num_bad_segs;
+    }
+
+    auto p2el = mesh.CreatePoint2ElementTable();
+    auto bad_segs = get_nonconforming(p2el);
+
+    if(bad_segs.Size() > 0) {
+      auto bad_seg = mesh[bad_segs[0]];
+      if(debugparam.write_mesh_on_error)
+        mesh.Save("free_segment_not_conformed_dom_"+ToString(domain)+"_seg_"+ToString(bad_seg[0])+"_"+ToString(bad_seg[1])+".vol.gz");
+      throw Exception("Segment not resolved in volume mesh in domain " + ToString(domain)+ ", seg: " + ToString(bad_seg));
+    }
+  }
 
 
   void RemoveIllegalElements (Mesh & mesh3d, int domain)

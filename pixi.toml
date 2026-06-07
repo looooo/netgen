@@ -1,0 +1,42 @@
+[workspace]
+name = "netgen"
+version = "6.2"
+description = "Automatic 3d tetrahedral mesh generator with Python interface"
+authors = ["The Netgen team"]
+license = "LGPL-2.1-only"
+readme = "README.md"
+homepage = "https://ngsolve.org"
+repository = "https://github.com/NGSolve/netgen"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64", "win-64", "osx-64", "osx-arm64"]
+
+[dependencies]
+cmake = ">=3.16"
+ninja = ">=1.10"
+cxx-compiler = ">=1.0"
+zlib = ">=1.2"
+occt = ">=7.9"
+python = ">=3.9,<3.13"
+pybind11 = "==3.0.1"
+numpy = ">=1.20"
+
+[tasks]
+# Konfiguration mit CMake (pybind11 + OCC von conda-forge)
+config = "cmake -B build -G Ninja -DUSE_SUPERBUILD=OFF -DUSE_OCC=ON -DUSE_GUI=OFF -DUSE_PYTHON=ON -DUSE_NATIVE_ARCH=OFF -DBUILD_FOR_CONDA=ON -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX -DCMAKE_PREFIX_PATH=$CONDA_PREFIX -DPython3_ROOT_DIR=$CONDA_PREFIX -DOpenCascade_DIR=$CONDA_PREFIX/lib/cmake/opencascade"
+# Build
+build = "cmake --build build"
+# Install (lokal in build/install oder PREFIX)
+install = "cmake --install build --prefix $CONDA_PREFIX"
+
+[tasks.full-build]
+# Vollständiger Build inkl. Konfiguration
+depends-on = ["config", "build"]
+
+[tasks.test-import]
+# Smoke-Test: Python-Bindings (nach `pixi run install` in $CONDA_PREFIX)
+cmd = "python -c \"import netgen; print('import netgen: OK')\""
+
+[tasks.otool-ngcore]
+# macOS: otool -L auf libngcore.dylib und pyngcore*.so (sonst Skip)
+depends-on = ["install"]
+cmd = "python scripts/pixi_otool_ngcore.py"
